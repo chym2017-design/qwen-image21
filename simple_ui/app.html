@@ -30,6 +30,13 @@
   .itabs { display:flex; gap:8px; margin-bottom:16px; }
   .itabs button { flex:1; padding:9px 0; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--dim); font-size:15px; cursor:pointer; }
   .itabs button.on { border-color:var(--acc); color:var(--txt); background:var(--onbg); }
+  .tyslot { flex:1; border:1.5px dashed var(--line); border-radius:12px; padding:14px 12px; text-align:center; color:var(--dim); font-size:13.5px; cursor:pointer; background:var(--card); }
+  .tyslot.hover { border-color:var(--acc); }
+  .typrev { display:flex; gap:8px; margin:0 0 14px; }
+  .typrev .refCard { width:110px; }
+  .tystages { display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; }
+  .tystage { font-size:11.5px; color:var(--dim); text-align:center; }
+  .tystage img { width:92px; border-radius:8px; border:1px solid var(--line); display:block; cursor:zoom-in; }
   label { display:block; font-size:13px; color:var(--dim); margin:12px 0 6px; }
   textarea, input[type=text], input[type=number], input[type=password], select { width:100%; background:var(--card); color:var(--txt); border:1px solid var(--line); border-radius:10px; padding:10px 12px; font-size:15px; font-family:inherit; }
   textarea { min-height:88px; resize:vertical; }
@@ -128,6 +135,7 @@
     <div class="itabs">
       <button id="tabT2i" class="on">文生图</button>
       <button id="tabEdit">图生图 / 编辑</button>
+      <button id="tabTryon">AI换装</button>
     </div>
     <div id="editBox" style="display:none">
       <label>参考图（1–10 张，按顺序编号：第 1 张 = &lt;image1&gt;，第 2 张 = &lt;image2&gt; …）</label>
@@ -142,21 +150,37 @@
         「标注」= 在图上画圈/涂鸦再下指令；「蒙版」= 精确涂出要重绘的区域（只改涂红处，其余像素保持，仅本地可用）。
       </div>
     </div>
+    <div id="tryonBox" style="display:none">
+      <label>人像图（保留其背景；上传或从仓库选）</label>
+      <div style="display:flex;gap:10px;margin-bottom:8px">
+        <div id="tyPersonDrop" class="tyslot">＋ 点击选择人像图，或拖到这里</div>
+        <button class="dlbtn" style="flex:0 0 auto" onclick="openTyPicker('person')">从仓库选图</button>
+      </div>
+      <div class="typrev" id="tyPersonPrev"></div>
+      <label>衣服图（会上身到人像；上传或从仓库选）</label>
+      <div style="display:flex;gap:10px;margin-bottom:8px">
+        <div id="tyClothesDrop" class="tyslot">＋ 点击选择衣服图，或拖到这里</div>
+        <button class="dlbtn" style="flex:0 0 auto" onclick="openTyPicker('clothes')">从仓库选图</button>
+      </div>
+      <div class="typrev" id="tyClothesPrev"></div>
+      <div class="hint">流程：抠图 → 小画布生成换装 → 贴回原背景（背景保持原样）。约 1–3 分钟；若模型一次没换成功会自动重试（最多 3 次）。完成后下方会展示抠图/生成等中间结果。</div>
+      <button id="tyBtn" disabled>开始换装</button>
+    </div>
     <label id="promptLabel">提示词（描述你想要的画面）</label>
     <div class="chips" id="chips"></div>
     <textarea id="prompt" placeholder="输入你想要画面的描述；也可以点上方常用提示词直接填充"></textarea>
-    <label>出图后端</label>
-    <div class="qual">
+    <label id="lblBackend">出图后端</label>
+    <div class="qual" id="qualBackend">
       <label><input type="radio" name="backend" value="local" checked> 本地（ComfyUI · 免费 · 较慢）</label>
       <label><input type="radio" name="backend" value="cloud"> 云端（百炼 2.1 · 快 · 按张计费）</label>
     </div>
     <div class="hint" id="backendHint">本地：turbo≈1.5 分钟/张，40 步≈25 分钟/张</div>
-    <label>生成质量</label>
-    <div class="qual">
+    <label id="lblQuality">生成质量</label>
+    <div class="qual" id="qualQuality">
       <label><input type="radio" name="q" value="turbo" checked> 快速（turbo）</label>
       <label><input type="radio" name="q" value="standard"> 高质量（pro / 40 步）</label>
     </div>
-    <details>
+    <details id="advBox">
       <summary>高级选项（负向提示词 / 种子 / 输出尺寸）</summary>
       <label>负向提示词（不想出现的内容，仅本地生效）</label>
       <textarea id="negative" placeholder="例如：模糊，变形，多余的手指，水印"></textarea>
@@ -192,6 +216,7 @@
         <button class="dlbtn save" id="saveT2i" onclick="saveResult('t2i')">存入文生图库</button>
         <button class="dlbtn save" id="saveTryon" onclick="saveResult('tryon')" style="display:none">存入试穿库</button>
       </div>
+      <div class="tystages" id="tyStages"></div>
       <div class="meta" id="meta"></div>
     </div>
   </div>
@@ -262,6 +287,7 @@ function applyTheme(t){ document.documentElement.dataset.theme=t; const b=$('the
 function toggleTheme(){ applyTheme(document.documentElement.dataset.theme==='dark'?'light':'dark'); }
 let ME = null, libKind = 'photo', libItems = [], allTags = [], tagFilter = new Set();
 let mode = 't2i', refs = [], timer = null, lastResult = null;
+let tyPerson = null, tyClothes = null, tyTimer = null;
 
 /* ---------- 鉴权 / 顶栏 ---------- */
 async function bootstrap() {
@@ -341,18 +367,27 @@ document.querySelectorAll('input[name=backend]').forEach(r => r.addEventListener
 /* ---------- 模式切换 ---------- */
 $('tabT2i').onclick = () => switchMode('t2i');
 $('tabEdit').onclick = () => switchMode('edit');
+$('tabTryon').onclick = () => switchMode('tryon');
 function switchMode(m) {
   mode = m;
-  $('tabT2i').classList.toggle('on', m === 't2i'); $('tabEdit').classList.toggle('on', m === 'edit');
+  const isTy = m === 'tryon';
+  $('tabT2i').classList.toggle('on', m === 't2i');
+  $('tabEdit').classList.toggle('on', m === 'edit');
+  $('tabTryon').classList.toggle('on', isTy);
   $('editBox').style.display = m === 'edit' ? 'block' : 'none';
+  $('tryonBox').style.display = isTy ? 'block' : 'none';
   $('sizeBox').style.display = m === 't2i' ? 'block' : 'none'; $('resBox').style.display = m === 'edit' ? 'block' : 'none';
   $('refHint').style.display = (m === 'edit' && refs.length) ? 'block' : 'none';
+  // AI换装模式：隐藏提示词/后端/质量/高级选项与通用生成按钮（改用固定流程 + 专属按钮）
+  for (const id of ['promptLabel', 'chips', 'prompt', 'lblBackend', 'qualBackend', 'backendHint', 'lblQuality', 'qualQuality', 'advBox', 'genBtn']) {
+    $(id).style.display = isTy ? 'none' : '';
+  }
   renderChips();
   $('promptLabel').textContent = m === 'edit' ? '修改要求（描述希望图片发生什么变化）' : '提示词（描述你想要的画面）';
   $('prompt').placeholder = m === 'edit' ? '例如：把 <image2> 中的商品放到 <image1> 的场景中' : '例如：雨夜街头，霓虹灯牌写着"你好"';
   updateOutHint(); updateBackendHint();
   $('saveT2i').style.display = (m === 't2i') ? '' : 'none';
-  $('saveTryon').style.display = (m === 'edit') ? '' : 'none';
+  $('saveTryon').style.display = (m !== 't2i') ? '' : 'none';
 }
 
 /* ---------- 参考图 ---------- */
@@ -464,7 +499,7 @@ $('longSide').addEventListener('input',updateOutHint);
 /* ---------- 提交 ---------- */
 function setStatus(t,isErr){const s=$('status');s.textContent=t;s.className=isErr?'err':'';}
 $('genBtn').onclick = async () => {
-  $('genBtn').disabled = true; $('result').style.display = 'none';
+  $('genBtn').disabled = true; $('result').style.display = 'none'; $('tyStages').innerHTML = '';
   const [w,h] = $('size').value.split('x').map(Number);
   const body = {
     mode, backend: currentBackend(), quality: document.querySelector('input[name=q]:checked').value,
@@ -511,25 +546,131 @@ async function saveResult(kind) {
 }
 
 /* ---------- 仓库选图弹层 ---------- */
-async function openPicker() {
+async function openPicker(onPick, kinds) {
+  kinds = kinds || ['photo','wardrobe','t2i'];
   $('picker').classList.add('on'); $('pickerGrid').innerHTML = '加载中…';
   let all = [];
-  for (const k of ['photo','wardrobe','t2i']) {
+  for (const k of kinds) {
     const r = await (await fetch('/api/items?kind='+k)).json();
     (r.items||[]).forEach(it => all.push(it));
   }
   const g = $('pickerGrid'); g.innerHTML = '';
-  if (!all.length) { g.textContent = '照片库和衣橱库都还没有图片'; return; }
+  if (!all.length) { g.textContent = '对应仓库里还没有图片'; return; }
   all.forEach(it => {
     const img = document.createElement('img'); img.src = '/api/lib?item='+it.id;
     img.title = it.orig_name || ''; img.onclick = () => {
       fetch('/api/lib?item='+it.id).then(r=>r.blob()).then(b=>{
-        const rd = new FileReader(); rd.onload = () => { addRefFromDataURL(rd.result, it.orig_name); $('picker').classList.remove('on'); }; rd.readAsDataURL(b);
+        const rd = new FileReader(); rd.onload = () => {
+          if (onPick) onPick(rd.result, it.orig_name); else addRefFromDataURL(rd.result, it.orig_name);
+          $('picker').classList.remove('on');
+        }; rd.readAsDataURL(b);
       });
     };
     g.appendChild(img);
   });
 }
+
+/* ---------- AI 换装 ---------- */
+let tyFileInput = null, tyTarget = 'person';
+function pickTyFile(target) {
+  tyTarget = target;
+  if (!tyFileInput) {
+    tyFileInput = document.createElement('input');
+    tyFileInput.type = 'file'; tyFileInput.accept = 'image/png,image/jpeg,image/webp'; tyFileInput.style.display = 'none';
+    document.body.appendChild(tyFileInput);
+    tyFileInput.onchange = () => { const f = tyFileInput.files[0]; tyFileInput.value = ''; if (f) addTyFile(tyTarget, f); };
+  }
+  tyFileInput.click();
+}
+function tyImageToSlot(img, name, target) {
+  let w = img.naturalWidth, h = img.naturalHeight; const s = Math.min(1, 2048/Math.max(w,h)); w=Math.round(w*s); h=Math.round(h*s);
+  const c = document.createElement('canvas'); c.width=w; c.height=h; c.getContext('2d').drawImage(img,0,0,w,h);
+  const du = c.toDataURL('image/png');
+  setTySlot(target, { dataUrl: du, b64: du.split(',')[1], ext: 'png', name: name || 'img' });
+}
+function addTyFile(target, f) {
+  if (!f.type.startsWith('image/')) return;
+  const img = new Image(), rd = new FileReader();
+  rd.onload = () => { img.onload = () => tyImageToSlot(img, f.name, target); img.src = rd.result; };
+  rd.readAsDataURL(f);
+}
+function setTySlot(target, val) {
+  if (target === 'person') tyPerson = val; else tyClothes = val;
+  renderTySlots();
+}
+function renderTySlots() {
+  const mk = (slot, boxId, emptyTxt, target) => {
+    const box = $(boxId); box.innerHTML = '';
+    if (!slot) { box.innerHTML = '<span style="color:var(--dim);font-size:12.5px">'+emptyTxt+'</span>'; return; }
+    const card = document.createElement('div'); card.className = 'refCard';
+    const img = document.createElement('img'); img.src = slot.dataUrl; card.appendChild(img);
+    const ops = document.createElement('div'); ops.className='ops';
+    const bDel = document.createElement('button'); bDel.textContent = '🗑';
+    bDel.onclick = () => setTySlot(target, null); ops.appendChild(bDel);
+    card.appendChild(ops); box.appendChild(card);
+  };
+  mk(tyPerson, 'tyPersonPrev', '尚未选择人像图', 'person');
+  mk(tyClothes, 'tyClothesPrev', '尚未选择衣服图', 'clothes');
+  $('tyBtn').disabled = !(tyPerson && tyClothes);
+}
+function wireTyDrop(dropId, target) {
+  const d = $(dropId);
+  d.onclick = () => pickTyFile(target);
+  d.ondragover = e => { e.preventDefault(); d.classList.add('hover'); };
+  d.ondragleave = () => d.classList.remove('hover');
+  d.ondrop = e => { e.preventDefault(); d.classList.remove('hover'); for (const f of e.dataTransfer.files) addTyFile(target, f); };
+}
+wireTyDrop('tyPersonDrop', 'person');
+wireTyDrop('tyClothesDrop', 'clothes');
+function openTyPicker(target) {
+  openPicker((dataUrl, name) => {
+    const img = new Image(); img.onload = () => tyImageToSlot(img, name, target); img.src = dataUrl;
+  }, target === 'person' ? ['photo','t2i','tryon'] : ['wardrobe','t2i','tryon']);
+}
+$('tyBtn').onclick = async () => {
+  if (!tyPerson || !tyClothes) return;
+  $('tyBtn').disabled = true; $('result').style.display = 'none'; $('tyStages').innerHTML = '';
+  let resp;
+  try {
+    resp = await (await fetch('/api/tryon', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ person: { b64: tyPerson.b64, ext: tyPerson.ext }, clothes: { b64: tyClothes.b64, ext: tyClothes.ext } }) })).json();
+  } catch (e) { setStatus('请求失败：'+e, true); $('tyBtn').disabled = false; return; }
+  if (resp.error) { setStatus('✖ '+resp.error, true); $('tyBtn').disabled = false; return; }
+  refreshCredits();
+  const t0 = Date.now(); clearInterval(tyTimer);
+  tyTimer = setInterval(async () => {
+    const el = Math.floor((Date.now()-t0)/1000);
+    let st; try { st = await (await fetch('/api/status?id='+resp.prompt_id)).json(); } catch(e){ return; }
+    if (st.state === 'queued' || st.state === 'running') { setStatus(`⏳ 换装中… 已等待 ${el} 秒（抠图 → 生成 → 贴回，约 1–3 分钟）`); }
+    else if (st.state === 'error') { clearInterval(tyTimer); $('tyBtn').disabled = false; setStatus('✖ 换装失败：'+(st.message||'未知错误'), true); refreshCredits(); }
+    else if (st.state === 'done') {
+      clearInterval(tyTimer); $('tyBtn').disabled = false; refreshCredits();
+      const tries = st.attempts > 1 ? `（自动重试 ${st.attempts-1} 次）` : '';
+      setStatus(`✔ 完成，用时 ${el} 秒${tries}` + (st.warn ? ' ｜ ⚠ ' + st.warn : ''), !!st.warn);
+      if (st.images && st.images.length) {
+        const im0 = st.images[0]; lastResult = im0;
+        const base = new URL(im0.url, location.origin); const u = new URL(base); u.searchParams.set('t', Date.now());
+        const img = $('resultImg');
+        img.onload = () => { if (!$('meta').textContent.includes('尺寸：')) $('meta').textContent += `  ｜  尺寸：${img.naturalWidth}×${img.naturalHeight}`; };
+        img.src = u.toString();
+        const dl = new URL(base); dl.searchParams.set('download','1');
+        $('dlBtn').href = dl.toString(); $('dlBtn').setAttribute('download', im0.name);
+        $('openBtn').href = base.toString();
+        $('result').style.display = 'block';
+        $('meta').textContent = `文件：${im0.name}`;
+        $('saveT2i').style.display = 'none'; $('saveTryon').style.display = '';
+        const sb = $('tyStages'); sb.innerHTML = '';
+        (st.stages||[]).forEach(s => {
+          const d = document.createElement('div'); d.className = 'tystage';
+          const a = document.createElement('a'); a.href = s.url; a.target = '_blank'; a.rel = 'noopener';
+          const im = document.createElement('img'); im.src = s.url; im.alt = s.label; a.appendChild(im);
+          d.appendChild(a); const t = document.createElement('div'); t.textContent = s.label; d.appendChild(t);
+          sb.appendChild(d);
+        });
+      }
+    }
+  }, 3000);
+};
 
 /* ---------- 仓库 ---------- */
 const LIB_NAME = { photo:'照片库', wardrobe:'衣橱库', tryon:'试穿库', t2i:'文生图库' };

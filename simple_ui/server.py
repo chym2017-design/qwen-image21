@@ -269,6 +269,7 @@ def build_job(data):
 # ---------------------------------------------------------------- 云端（阿里云百炼 qwen-image-2.1）
 BAILIAN_URL = "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
 CLOUD_JOBS = {}   # job_id -> {state, images, error, ...}（存内存，进程重启即丢）
+TRYON_JOBS = {}   # AI换装（抠图→生成→贴回）任务，同上
 
 
 def bailian_key():
@@ -365,6 +366,77 @@ def _run_cloud_job(job_id, data, api_key, uid=None, cost=0):
         if uid and cost:
             db.grant_credits(uid, cost, "云端失败退还")
         CLOUD_JOBS[job_id] = {"state": "error", "images": [], "error": str(e)}
+
+
+# ---------------------------------------------------------------- AI 换装（抠图→生成→贴回原背景）
+def _img_url(name):
+    return "/api/image?" + urllib.parse.urlencode({"filename": name, "subfolder": "", "type": "output"})
+
+
+def _tryon_generate(a_img, b_img, timeout=1500):
+    """提交一次换装小画布生成（resolution=0，画布=图1裁切尺寸）并等待，返回 BGR 图。"""
+    import tryon as _tryon        # 延迟导入（依赖 cv2/rembg/PIL）
+    prompt = _tryon.PROMPT
+    data = {"mode": "edit", "quality": "turbo", "prompt": prompt,
+            "refs": [{"b64": _tryon.encode_png_b64(a_img), "ext": "png"},
+                     {"b64": _tryon.encode_png_b64(b_img), "ext": "png"}],
+            "resolution": 1024}
+    wf = build_edit(data, "turbo", prompt, "")
+    for n in wf.values():
+        if n.get("class_type") == "TextEncodeQwenImage21":
+            n["inputs"]["resolution"] = 0     # 保持裁切小图原生尺寸（不做缩放，快且省内存）
+    resp = comfy_post("/prompt", {"prompt": wf})
+    pid = resp.get("prompt_id")
+    if not pid:
+        raise RuntimeError("ComfyUI 未返回任务: %r" % resp)
+    t0 = time.time()
+    while time.time() - t0 < timeout:
+        time.sleep(2)
+        h = comfy_get("/history/" + pid).get(pid)
+        if not h:
+            continue
+        st = h.get("status", {})
+        if st.get("status_str") == "error":
+            raise RuntimeError("本地生成失败")
+        if st.get("completed") or st.get("status_str") == "success":
+            for out in h.get("outputs", {}).values():
+                for im in out.get("images", []):
+                    fp = os.path.join(COMFY_OUTPUT, im.get("subfolder", ""), im["filename"])
+                    return _tryon.decode_png_file(fp)
+            raise RuntimeError("本地无输出图")
+    raise RuntimeError("本地生成超时")
+
+
+def _run_tryon_job(job_id, person_b64, clothes_b64, uid=None, cost=0):
+    """后台线程：抠图 → 小画布生成（失败自动重试）→ 贴回原背景，结果存 ComfyUI/output。"""
+    import tryon as _tryon
+    try:
+        os.makedirs(COMFY_OUTPUT, exist_ok=True)
+        tag = job_id.replace("tryon-", "")
+
+        def log(*a):
+            print("[tryon %s] %s" % (tag, " ".join(str(x) for x in a)), flush=True)
+
+        person = _tryon.decode_png_b64(person_b64)
+        clothes = _tryon.decode_png_b64(clothes_b64)
+        r = _tryon.run_tryon(person, clothes, _tryon_generate, log=log)
+
+        fname = "qwen21_tryon_%s.png" % tag
+        _tryon.save_png(os.path.join(COMFY_OUTPUT, fname), r["out"])
+        stages = []
+        for i, (label, img) in enumerate(r["intermediates"]):
+            sn = "qwen21_tryon_%s_i%d.png" % (tag, i)
+            _tryon.save_png(os.path.join(COMFY_OUTPUT, sn), img)
+            stages.append({"label": label, "url": _img_url(sn), "name": sn})
+        log("完成：尝试 %d 次，检测分 %.1f，用时 %s" % (r["attempts"], r["score"], r["timings"]))
+        TRYON_JOBS[job_id] = {"state": "done",
+                              "images": [{"url": _img_url(fname), "name": fname}],
+                              "stages": stages, "warn": r["warn"], "score": r["score"],
+                              "attempts": r["attempts"], "meta": r["meta"]}
+    except Exception as e:
+        if uid and cost:
+            db.grant_credits(uid, cost, "换装失败退还")
+        TRYON_JOBS[job_id] = {"state": "error", "images": [], "error": str(e)}
 
 
 # ---------------------------------------------------------------- HTTP 服务
@@ -475,6 +547,20 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, json.dumps({"state": "error", "message": "云任务不存在（服务可能已重启）"}))
             elif job["state"] == "done":
                 self._send(200, json.dumps({"state": "done", "images": job["images"]}))
+            elif job["state"] == "error":
+                self._send(200, json.dumps({"state": "error", "message": job["error"]}))
+            else:
+                self._send(200, json.dumps({"state": "running"}))
+            return
+        if pid.startswith("tryon-"):
+            job = TRYON_JOBS.get(pid)
+            if not job:
+                self._send(200, json.dumps({"state": "error", "message": "换装任务不存在（服务可能已重启）"}))
+            elif job["state"] == "done":
+                self._send(200, json.dumps({"state": "done", "images": job["images"],
+                                            "stages": job.get("stages", []),
+                                            "warn": job.get("warn", ""),
+                                            "attempts": job.get("attempts", 1)}))
             elif job["state"] == "error":
                 self._send(200, json.dumps({"state": "error", "message": job["error"]}))
             else:
@@ -599,6 +685,40 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:
             db.grant_credits(user["id"], cost, "退还：提交异常")
             self._send(200, json.dumps({"error": str(e)}))
+
+    def _handle_tryon(self, raw, user):
+        """AI 换装：抠图→小画布生成（失败自动重试）→贴回原背景。仅本地。"""
+        global _last_submit
+        now = time.time()
+        if now - _last_submit < MIN_INTERVAL:
+            self._send(200, json.dumps({"error": "提交过于频繁，请稍候几秒"})); return
+        try:
+            data = json.loads(raw or b"{}")
+        except Exception as e:
+            self._send(200, json.dumps({"error": "请求解析失败: " + str(e)})); return
+        if not user["allow_local"]:
+            self._send(200, json.dumps({"error": "管理员已关闭你的本地出图权限"})); return
+        person_b64 = ((data.get("person") or {}).get("b64") or "").strip()
+        clothes_b64 = ((data.get("clothes") or {}).get("b64") or "").strip()
+        if not person_b64 or not clothes_b64:
+            self._send(200, json.dumps({"error": "请先选择人像图和衣服图"})); return
+        cost = int(db.config_all()["cost_turbo"])
+        if not db.spend_credits(user["id"], cost, "AI换装(本地)"):
+            self._send(200, json.dumps({"error": "积分不足（需要 %d，当前 %d）" % (cost, user["credits"])})); return
+        try:
+            q = comfy_get("/queue")
+            backlog = len(q.get("queue_running", [])) + len(q.get("queue_pending", []))
+            if backlog >= MAX_QUEUE:
+                db.grant_credits(user["id"], cost, "退还：队列繁忙")
+                self._send(200, json.dumps({"error": "服务器繁忙（队列已有 %d 个任务），请稍后再试" % backlog})); return
+        except Exception:
+            pass
+        job_id = "tryon-" + secrets.token_hex(8)
+        TRYON_JOBS[job_id] = {"state": "running", "images": [], "error": ""}
+        threading.Thread(target=_run_tryon_job,
+                         args=(job_id, person_b64, clothes_b64, user["id"], cost), daemon=True).start()
+        _last_submit = now
+        self._send(200, json.dumps({"prompt_id": job_id, "cost": cost}))
 
     def _handle_item_upload(self, raw, user):
         try:
@@ -836,6 +956,8 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_item_fromfile(raw, user); return
         if path == "/api/tags":
             self._handle_tag_add(raw, user); return
+        if path == "/api/tryon":
+            self._handle_tryon(raw, user); return
         if path.startswith("/api/items/") and path.endswith("/tags"):
             self._handle_item_tags(path, raw, user); return
         if path.startswith("/api/items/") and path.endswith("/rename"):
