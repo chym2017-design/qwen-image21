@@ -39,6 +39,13 @@
   .tystage img { width:92px; border-radius:8px; border:1px solid var(--line); display:block; cursor:zoom-in; }
   .tyops { display:flex; gap:3px; justify-content:center; margin-top:3px; }
   .tyops button { font-size:11px; padding:2px 5px; border-radius:6px; border:1px solid var(--line); background:var(--card); color:var(--txt); cursor:pointer; }
+  #imgMenu { position:fixed; z-index:120; display:none; min-width:168px; padding:6px; background:var(--card); border:1px solid var(--line); border-radius:12px; box-shadow:0 10px 34px rgba(0,0,0,.5); }
+  #imgMenu.on { display:block; }
+  #imgMenu .hd { font-size:11.5px; color:var(--dim); padding:5px 10px 3px; }
+  #imgMenu button { display:block; width:100%; text-align:left; padding:8px 10px; border:0; border-radius:8px; background:transparent; color:var(--txt); font-size:13.5px; cursor:pointer; }
+  #imgMenu button:hover { background:var(--onbg); }
+  #imgMenu .sep { height:1px; background:var(--line); margin:5px 4px; }
+  img { -webkit-touch-callout:none; }
   label { display:block; font-size:13px; color:var(--dim); margin:12px 0 6px; }
   textarea, input[type=text], input[type=number], input[type=password], select { width:100%; background:var(--card); color:var(--txt); border:1px solid var(--line); border-radius:10px; padding:10px 12px; font-size:15px; font-family:inherit; }
   textarea { min-height:88px; resize:vertical; }
@@ -267,6 +274,9 @@
   <canvas id="pcanvas"></canvas>
   <div class="mhint" id="mhint"></div>
 </div></div>
+
+<!-- 图片右键/长按菜单 -->
+<div id="imgMenu"></div>
 
 <!-- 仓库选图弹层 -->
 <div id="picker"><div class="mwrap">
@@ -535,6 +545,7 @@ $('genBtn').onclick = async () => {
         const im0 = st.images[0]; lastResult = im0;
         const base = new URL(im0.url, location.origin); const u = new URL(base); u.searchParams.set('t', Date.now());
         const img = $('resultImg');
+        img.dataset.name = im0.name;
         img.onload = () => { if (!$('meta').textContent.includes('尺寸：')) $('meta').textContent += `  ｜  尺寸：${img.naturalWidth}×${img.naturalHeight}`; };
         img.src = u.toString();
         const dl = new URL(base); dl.searchParams.set('download','1');
@@ -684,6 +695,7 @@ $('tyBtn').onclick = async () => {
         const im0 = st.images[0]; lastResult = im0;
         const base = new URL(im0.url, location.origin); const u = new URL(base); u.searchParams.set('t', Date.now());
         const img = $('resultImg');
+        img.dataset.name = im0.name;
         img.onload = () => { if (!$('meta').textContent.includes('尺寸：')) $('meta').textContent += `  ｜  尺寸：${img.naturalWidth}×${img.naturalHeight}`; };
         img.src = u.toString();
         const dl = new URL(base); dl.searchParams.set('download','1');
@@ -696,7 +708,7 @@ $('tyBtn').onclick = async () => {
         (st.stages||[]).forEach(s => {
           const d = document.createElement('div'); d.className = 'tystage';
           const a = document.createElement('a'); a.href = s.url; a.target = '_blank'; a.rel = 'noopener';
-          const im = document.createElement('img'); im.src = s.url; im.alt = s.label; a.appendChild(im);
+          const im = document.createElement('img'); im.src = s.url; im.alt = s.label; im.dataset.name = s.name; a.appendChild(im);
           d.appendChild(a); const t = document.createElement('div'); t.textContent = s.label; d.appendChild(t);
           const ops = document.createElement('div'); ops.className = 'tyops';
           ops.appendChild(mkBtn('📷照片库', () => saveUrlToLib('photo', s.url, s.name)));
@@ -710,6 +722,78 @@ $('tyBtn').onclick = async () => {
     }
   }, 3000);
 };
+
+/* ---------- 图片右键/长按菜单：存入 4 个库 + 下载 + 新标签 ---------- */
+const IMG_LIBS = [['photo', '📷 照片库'], ['wardrobe', '👗 衣橱库'], ['tryon', '🪞 试穿库'], ['t2i', '🎨 文生图库']];
+function closeImgMenu() { $('imgMenu').classList.remove('on'); }
+function pickContentImg(t) {
+  return (t && t.tagName === 'IMG' && !t.closest('#imgMenu')
+          && (t.naturalWidth || 0) >= 48 && (t.naturalHeight || 0) >= 48) ? t : null;
+}
+async function imgToB64(img) {
+  if (img.src.startsWith('data:')) {
+    const mime = img.src.slice(5).split(';')[0] || 'image/png';
+    return { b64: img.src.split(',', 2)[1], ext: mime.includes('jpeg') ? 'jpg' : 'png' };
+  }
+  const b = await (await fetch(img.src)).blob();
+  const u8 = new Uint8Array(await b.arrayBuffer());
+  let bin = '';
+  for (let i = 0; i < u8.length; i += 0x8000) bin += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+  return { b64: btoa(bin), ext: (b.type || '').includes('jpeg') ? 'jpg' : 'png' };
+}
+async function saveImgToLib(kind, img) {
+  try {
+    const { b64, ext } = await imgToB64(img);
+    const name = img.dataset.name || img.alt || img.title || 'image';
+    const r = await (await fetch('/api/items', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ kind, b64, ext, orig_name: name, tags: [] }) })).json();
+    if (r.error) { toast('存入失败：' + r.error, true); return; }
+    const label = (IMG_LIBS.find(x => x[0] === kind) || [, kind])[1];
+    toast('✔ 已存入' + label.replace(/^\S+\s*/, ''));
+    if (typeof libKind !== 'undefined' && libKind === kind) loadLibrary();
+  } catch (e) { toast('存入失败：' + e, true); }
+}
+function openImgMenu(x, y, img) {
+  const m = $('imgMenu'); m.innerHTML = '';
+  const hd = document.createElement('div'); hd.className = 'hd'; hd.textContent = '存入哪个库？'; m.appendChild(hd);
+  IMG_LIBS.forEach(([k, label]) => {
+    const b = document.createElement('button'); b.textContent = label;
+    b.onclick = () => { closeImgMenu(); saveImgToLib(k, img); };
+    m.appendChild(b);
+  });
+  const sep = document.createElement('div'); sep.className = 'sep'; m.appendChild(sep);
+  const bDl = document.createElement('button'); bDl.textContent = '⬇️ 下载';
+  bDl.onclick = () => { closeImgMenu(); if (img.src.startsWith('data:')) { const a = document.createElement('a'); a.href = img.src; a.download = img.dataset.name || img.alt || 'image.png'; a.click(); } else dlUrl(img.src, img.dataset.name || img.alt || 'image.png'); };
+  const bOpen = document.createElement('button'); bOpen.textContent = '🔍 新标签打开';
+  bOpen.onclick = () => { closeImgMenu(); window.open(img.src, '_blank'); };
+  m.appendChild(bDl); m.appendChild(bOpen);
+  m.classList.add('on');
+  const r = m.getBoundingClientRect();
+  m.style.left = Math.max(6, Math.min(x, window.innerWidth - r.width - 10)) + 'px';
+  m.style.top = Math.max(6, Math.min(y, window.innerHeight - r.height - 10)) + 'px';
+}
+document.addEventListener('contextmenu', e => {
+  const img = pickContentImg(e.target);
+  if (img) { e.preventDefault(); openImgMenu(e.clientX, e.clientY, img); return; }
+  closeImgMenu();
+});
+document.addEventListener('click', e => { if (!$('imgMenu').contains(e.target)) closeImgMenu(); });
+window.addEventListener('scroll', closeImgMenu, true);
+window.addEventListener('resize', closeImgMenu);
+/* 触摸长按（手机/平板） */
+let lpTimer = null, lpFired = 0;
+document.addEventListener('touchstart', e => {
+  const img = pickContentImg(e.target);
+  if (!img || e.touches.length !== 1) return;
+  const x = e.touches[0].clientX, y = e.touches[0].clientY;
+  clearTimeout(lpTimer);
+  lpTimer = setTimeout(() => { lpFired = Date.now(); openImgMenu(x, y, img); }, 550);
+}, { passive: true });
+['touchend', 'touchmove', 'touchcancel'].forEach(ev =>
+  document.addEventListener(ev, () => clearTimeout(lpTimer), { passive: true }));
+document.addEventListener('click', e => {
+  if (Date.now() - lpFired < 700 && pickContentImg(e.target)) { e.preventDefault(); e.stopPropagation(); }
+}, true);
 
 /* ---------- 仓库 ---------- */
 const LIB_NAME = { photo:'照片库', wardrobe:'衣橱库', tryon:'试穿库', t2i:'文生图库' };
@@ -763,6 +847,7 @@ function renderLibrary() {
   items.forEach(it => {
     const card = document.createElement('div'); card.className = 'libCard';
     const img = document.createElement('img'); img.src = '/api/lib?item='+it.id;
+    img.dataset.name = it.orig_name || it.filename;
     img.onclick = () => openLightbox(it);
     card.appendChild(img);
     const del = document.createElement('button'); del.className='del'; del.textContent='🗑'; del.onclick = async (e) => {
