@@ -1,0 +1,6 @@
+{
+  "export_dir": "~/Pictures/qwen-images",
+  "access_token": "改成你自己的访问口令",
+  "bailian_api_key": "",
+  "default_backend": "local"
+}

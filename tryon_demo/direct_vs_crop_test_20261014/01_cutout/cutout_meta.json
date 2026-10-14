@@ -1,0 +1,26 @@
+{
+  "person_bbox_xyxy": [
+    302,
+    95,
+    721,
+    1472
+  ],
+  "person_crop_wh": [
+    419,
+    1377
+  ],
+  "clothes_bbox_xyxy": [
+    334,
+    104,
+    687,
+    1463
+  ],
+  "clothes_crop_wh": [
+    353,
+    1359
+  ],
+  "timing": {
+    "matting_person_s": 14.8,
+    "matting_clothes_s": 8.5
+  }
+}

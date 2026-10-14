@@ -1,0 +1,14 @@
+{
+  "matting_person_s": 14.8,
+  "matting_clothes_s": 8.5,
+  "gen_wall_s": 111.7,
+  "gen_comfy_s": 110.82,
+  "gen_canvas": [
+    416,
+    1376
+  ],
+  "matting_gen_result_s": 8.7,
+  "pasteback_s": 0.01,
+  "total_s": 143.7,
+  "total_excl_matting_s": 120.4
+}

@@ -1,0 +1,55 @@
+{
+  "input": {
+    "person": [
+      683,
+      1024
+    ],
+    "clothes": [
+      683,
+      1024
+    ]
+  },
+  "A_direct": {
+    "wall_s": 116.0,
+    "comfy_s": 115.32,
+    "canvas": [
+      672,
+      1024
+    ]
+  },
+  "B_crop_paste": {
+    "matting_person_s": 11.6,
+    "matting_clothes_s": 7.8,
+    "gen_wall_s": 58.6,
+    "gen_comfy_s": 57.85,
+    "gen_canvas": [
+      288,
+      928
+    ],
+    "matting_gen_s": 9.6,
+    "paste_s": 0.01,
+    "total_s": 87.6,
+    "person_bbox_xyxy": [
+      201,
+      64,
+      481,
+      982
+    ]
+  },
+  "retries": {
+    "tries": 4,
+    "success": 2,
+    "retry_wall_s": 32.3,
+    "note": "288x928 小画布换装成功率 2/4"
+  },
+  "metrics": {
+    "bg_drift_small": {
+      "A_direct": 3.62,
+      "B_pasteback_s1": 0.25
+    },
+    "identity_vs_full_person": {
+      "A_direct": 0.698,
+      "B_pasteback_s1": 0.709
+    }
+  }
+}

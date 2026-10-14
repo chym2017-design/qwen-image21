@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Qwen-Image-2.1</title>
+<script>try{document.documentElement.dataset.theme=localStorage.getItem('qwz_theme')||'light'}catch(e){document.documentElement.dataset.theme='light'}</script>
+<style>
+  :root, :root[data-theme="light"] {
+    --bg:#f5f6f8; --bg2:#eaecef; --card:#ffffff; --line:#e2e5ea; --txt:#1a1d24; --dim:#6b7280;
+    --acc:#2563eb; --onacc:#ffffff; --onbg:#e8effd; --ok:#16a34a; --okbg:#e8f6ee; --err:#dc2626; --errbg:#fde8e8; --warn:#b45309;
+  }
+  :root[data-theme="dark"] {
+    --bg:#101216; --bg2:#15181e; --card:#1a1d24; --line:#2a2f3a; --txt:#e8eaef; --dim:#9aa3b2;
+    --acc:#6ea8fe; --onacc:#0b1220; --onbg:#1e2735; --ok:#3ecf8e; --okbg:#1e2a1e; --err:#ff6b6b; --errbg:#3a1e1e; --warn:#f5c451;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--txt); font:15px/1.6 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif; }
+  .topbar { display:flex; align-items:center; gap:14px; padding:12px 18px; border-bottom:1px solid var(--line); background:var(--bg2); position:sticky; top:0; z-index:20; }
+  .topbar .brand { font-weight:700; font-size:16px; }
+  .topbar .grow { flex:1; }
+  .topbar .credits { color:var(--ok); font-weight:600; }
+  .topbar button { padding:6px 12px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--txt); cursor:pointer; font-size:13px; }
+  .wrap { max-width:860px; margin:0 auto; padding:22px 18px 80px; }
+  .otabs { display:flex; gap:8px; margin-bottom:18px; }
+  .otabs button { flex:1; padding:10px 0; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--dim); font-size:15px; cursor:pointer; }
+  .otabs button.on { border-color:var(--acc); color:var(--txt); background:var(--onbg); }
+  .view { display:none; } .view.on { display:block; }
+  .banner { display:none; padding:10px 14px; border-radius:10px; margin-bottom:14px; font-size:14px; background:var(--errbg); color:var(--err); }
+  .itabs { display:flex; gap:8px; margin-bottom:16px; }
+  .itabs button { flex:1; padding:9px 0; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--dim); font-size:15px; cursor:pointer; }
+  .itabs button.on { border-color:var(--acc); color:var(--txt); background:var(--onbg); }
+  label { display:block; font-size:13px; color:var(--dim); margin:12px 0 6px; }
+  textarea, input[type=text], input[type=number], input[type=password], select { width:100%; background:var(--card); color:var(--txt); border:1px solid var(--line); border-radius:10px; padding:10px 12px; font-size:15px; font-family:inherit; }
+  textarea { min-height:88px; resize:vertical; }
+  .row { display:flex; gap:12px; } .row > div { flex:1; }
+  .qual { display:flex; gap:8px; }
+  .qual label { flex:1; margin:0; display:flex; align-items:center; gap:8px; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:10px 12px; cursor:pointer; color:var(--txt); font-size:14px; }
+  .qual input { accent-color:var(--acc); }
+  #genBtn { width:100%; margin-top:18px; padding:13px 0; font-size:17px; font-weight:600; border:0; border-radius:12px; background:var(--acc); color:var(--onacc); cursor:pointer; }
+  #genBtn:disabled { opacity:.45; cursor:default; }
+  #status { margin-top:14px; color:var(--dim); font-size:14px; min-height:22px; } #status.err { color:var(--err); }
+  .result { margin-top:18px; display:none; } .result img { width:100%; border-radius:12px; border:1px solid var(--line); display:block; }
+  .acts { display:flex; gap:10px; margin-top:10px; flex-wrap:wrap; }
+  .dlbtn { display:inline-block; padding:8px 14px; border-radius:9px; border:1px solid var(--line); background:var(--card); color:var(--txt); text-decoration:none; font-size:14px; cursor:pointer; }
+  .dlbtn:hover { border-color:var(--acc); } .dlbtn.save { background:var(--okbg); border-color:var(--ok); color:var(--ok); }
+  .chips { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin:0 0 8px; } .chips .lbl { color:var(--dim); font-size:12.5px; }
+  .chip { padding:6px 11px; border-radius:999px; border:1px solid var(--line); background:var(--card); color:var(--txt); font-size:13px; cursor:pointer; }
+  .chip.on { border-color:var(--acc); background:var(--onbg); }
+  .meta { color:var(--dim); font-size:13px; margin-top:8px; word-break:break-all; }
+  details { margin-top:16px; } summary { color:var(--dim); cursor:pointer; font-size:14px; }
+  #drop { border:1.5px dashed var(--line); border-radius:12px; padding:18px; text-align:center; color:var(--dim); cursor:pointer; font-size:14px; }
+  #drop.hover { border-color:var(--acc); color:var(--txt); }
+  .refs { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:10px; margin-top:10px; }
+  .refCard { background:var(--card); border:1px solid var(--line); border-radius:10px; overflow:hidden; position:relative; }
+  .refCard img { width:100%; height:120px; object-fit:cover; display:block; }
+  .refCard .badge { position:absolute; top:6px; left:6px; background:rgba(110,168,254,.92); color:#0b1220; font-size:12px; font-weight:700; border-radius:6px; padding:1px 7px; }
+  .refCard .tag { position:absolute; top:6px; right:6px; background:rgba(245,196,81,.92); color:#3a2e08; font-size:11px; border-radius:6px; padding:1px 6px; }
+  .refCard .ops { display:flex; gap:6px; padding:7px; }
+  .refCard .ops button { flex:1; font-size:12px; padding:5px 0; border-radius:7px; border:1px solid var(--line); background:var(--card); color:var(--txt); cursor:pointer; }
+  .hint { color:var(--dim); font-size:12.5px; margin-top:8px; }
+  /* 仓库 */
+  .libGrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:12px; margin-top:14px; }
+  .libCard { background:var(--card); border:1px solid var(--line); border-radius:10px; overflow:hidden; position:relative; }
+  .libCard img { width:100%; height:150px; object-fit:cover; display:block; cursor:pointer; }
+  .libCard .del { position:absolute; top:5px; right:5px; background:rgba(255,107,107,.92); color:#fff; border:0; border-radius:6px; padding:2px 7px; cursor:pointer; font-size:12px; }
+  .libCard .tlist { padding:6px 8px; font-size:11px; color:var(--dim); min-height:24px; }
+  .libCard .pickAdd { display:block; padding:6px; text-align:center; font-size:12px; border-top:1px solid var(--line); color:var(--acc); cursor:pointer; }
+  .tagbar { display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin:10px 0; }
+  .tagbar .tg { padding:4px 10px; border-radius:999px; border:1px solid var(--line); background:var(--card); color:var(--dim); font-size:12px; cursor:pointer; }
+  .tagbar .tg.on { border-color:var(--acc); color:var(--txt); background:var(--onbg); }
+  .tagbar .add { color:var(--acc); font-size:12px; cursor:pointer; border:1px dashed var(--line); padding:4px 10px; border-radius:999px; }
+  /* 弹层 */
+  #modal, #picker { display:none; position:fixed; inset:0; background:rgba(5,7,10,.92); z-index:50; overflow:auto; }
+  #modal.on, #picker.on { display:block; }
+  .mwrap { max-width:920px; margin:0 auto; padding:20px 16px 40px; }
+  .mbar { display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:12px; }
+  .mbar .title { font-size:16px; font-weight:600; margin-right:auto; }
+  .mbar button { padding:8px 14px; border-radius:9px; border:1px solid var(--line); background:var(--card); color:var(--txt); cursor:pointer; font-size:14px; }
+  .mbar button.primary { background:var(--acc); color:var(--onacc); font-weight:600; border:0; }
+  .mbar input[type=range] { width:150px; accent-color:var(--acc); }
+  #pcanvas { background:#000; border:1px solid var(--line); border-radius:12px; touch-action:none; cursor:crosshair; display:block; margin:0 auto; }
+  .mhint { color:var(--dim); font-size:13px; text-align:center; margin-top:10px; }
+  .pickerGrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(120px,1fr)); gap:10px; max-height:70vh; overflow:auto; }
+  .pickerGrid img { width:100%; height:120px; object-fit:cover; border-radius:8px; border:1px solid var(--line); cursor:pointer; }
+  /* 提示 / 大图预览 */
+  #toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%); background:var(--txt); color:var(--bg); padding:10px 20px; border-radius:10px; font-size:14px; opacity:0; transition:opacity .2s; pointer-events:none; z-index:100; max-width:80vw; }
+  #toast.on { opacity:1; } #toast.err { background:var(--err); color:#fff; }
+  #lightbox { display:none; position:fixed; inset:0; background:rgba(5,7,10,.92); z-index:55; overflow:auto; }
+  #lightbox.on { display:block; }
+  .libCard .fname { padding:4px 8px 0; font-size:12px; color:var(--txt); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+  /* 管理员 */
+  table.adm { width:100%; border-collapse:collapse; margin-top:12px; font-size:13px; }
+  table.adm th, table.adm td { border:1px solid var(--line); padding:7px 9px; text-align:left; }
+  table.adm th { color:var(--dim); background:var(--bg2); }
+  table.adm input[type=number], table.adm input[type=text] { width:90px; padding:5px 7px; font-size:13px; }
+  table.adm select { padding:5px 7px; font-size:13px; }
+  .cfgrow { display:flex; gap:10px; align-items:center; margin:8px 0; flex-wrap:wrap; }
+  .cfgrow label { margin:0; min-width:160px; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">Qwen-Image-2.1</span>
+  <span class="grow"></span>
+  <span id="userLabel" style="color:var(--dim);font-size:13px"></span>
+  <span class="credits" id="creditsLabel">-</span>
+  <button id="themeBtn" onclick="toggleTheme()" title="切换明暗主题" style="font-size:14px">🌙</button>
+  <button onclick="location.href='/login'">退出</button>
+</div>
+
+<div class="wrap">
+  <div id="banner" class="banner"></div>
+  <div class="otabs">
+    <button id="otGen" class="on" onclick="showView('gen')">出图</button>
+    <button id="otLib" onclick="showView('lib')">我的仓库</button>
+    <button id="otAdm" style="display:none" onclick="showView('adm')">管理员</button>
+  </div>
+
+  <!-- ============ 出图 ============ -->
+  <div id="vGen" class="view on">
+    <div id="memBar" style="display:flex;align-items:center;gap:10px;margin-bottom:14px;font-size:13px;color:var(--dim)">
+      <span id="memInfo">内存：读取中…</span>
+      <button id="freeBtn" style="padding:4px 10px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--txt);cursor:pointer;font-size:12.5px">释放内存</button>
+      <span id="freeHint" style="color:var(--ok)"></span>
+    </div>
+    <div class="itabs">
+      <button id="tabT2i" class="on">文生图</button>
+      <button id="tabEdit">图生图 / 编辑</button>
+    </div>
+    <div id="editBox" style="display:none">
+      <label>参考图（1–10 张，按顺序编号：第 1 张 = &lt;image1&gt;，第 2 张 = &lt;image2&gt; …）</label>
+      <div style="display:flex;gap:10px">
+        <div id="drop" style="flex:1">点击选择图片（可多选），或把图片拖到这里</div>
+        <button class="dlbtn" style="flex:0 0 auto" onclick="openPicker()">从仓库选图</button>
+      </div>
+      <input type="file" id="file" accept="image/png,image/jpeg,image/webp" multiple style="display:none">
+      <div class="refs" id="refs"></div>
+      <div class="hint" id="refHint" style="display:none">
+        在提示词里用 &lt;image1&gt;、&lt;image2&gt; 指代对应编号的图；输出画幅跟随第 1 张。
+        「标注」= 在图上画圈/涂鸦再下指令；「蒙版」= 精确涂出要重绘的区域（只改涂红处，其余像素保持，仅本地可用）。
+      </div>
+    </div>
+    <label id="promptLabel">提示词（描述你想要的画面）</label>
+    <div class="chips" id="chips"></div>
+    <textarea id="prompt" placeholder="输入你想要画面的描述；也可以点上方常用提示词直接填充"></textarea>
+    <label>出图后端</label>
+    <div class="qual">
+      <label><input type="radio" name="backend" value="local" checked> 本地（ComfyUI · 免费 · 较慢）</label>
+      <label><input type="radio" name="backend" value="cloud"> 云端（百炼 2.1 · 快 · 按张计费）</label>
+    </div>
+    <div class="hint" id="backendHint">本地：turbo≈1.5 分钟/张，40 步≈25 分钟/张</div>
+    <label>生成质量</label>
+    <div class="qual">
+      <label><input type="radio" name="q" value="turbo" checked> 快速（turbo）</label>
+      <label><input type="radio" name="q" value="standard"> 高质量（pro / 40 步）</label>
+    </div>
+    <details>
+      <summary>高级选项（负向提示词 / 种子 / 输出尺寸）</summary>
+      <label>负向提示词（不想出现的内容，仅本地生效）</label>
+      <textarea id="negative" placeholder="例如：模糊，变形，多余的手指，水印"></textarea>
+      <div class="row">
+        <div><label>随机种子（留空 = 每次随机）</label><input type="text" id="seed" placeholder="留空即可"></div>
+        <div id="sizeBox"><label>尺寸（输出画幅）</label>
+          <select id="size">
+            <option value="1328x1328" selected>方形 1328×1328</option>
+            <option value="1024x1024">方形 1024×1024</option>
+            <option value="1536x1024">横版 1536×1024</option>
+            <option value="1024x1536">竖版 1024×1536</option>
+          </select>
+        </div>
+        <div id="resBox" style="display:none"><label>编辑清晰度（跟随图1比例）</label>
+          <select id="resolution">
+            <option value="768">768 · 最快</option><option value="1024" selected>1024 · 推荐</option>
+            <option value="1328">1328 · 清晰</option><option value="1536">1536 · 高</option>
+            <option value="2048">2048 · 很高</option><option value="custom">自定义长边…</option>
+          </select>
+          <div id="customResBox" style="display:none;margin-top:8px"><div class="row"><div><input type="number" id="longSide" value="1600" min="256" max="4096" step="32"></div><div style="flex:0 0 auto;color:var(--dim);font-size:13px">px（长边）</div></div></div>
+          <div class="hint" id="outSizeHint"></div>
+        </div>
+      </div>
+    </details>
+    <button id="genBtn">开始生成</button>
+    <div id="status"></div>
+    <div id="result" class="result">
+      <img id="resultImg" alt="生成结果">
+      <div class="acts">
+        <a id="dlBtn" class="dlbtn" download>⬇️ 下载</a>
+        <a id="openBtn" class="dlbtn" target="_blank" rel="noopener">🔍 新标签打开</a>
+        <button class="dlbtn save" id="savePhoto" onclick="saveResult('photo')">存入照片库</button>
+        <button class="dlbtn save" id="saveT2i" onclick="saveResult('t2i')">存入文生图库</button>
+        <button class="dlbtn save" id="saveTryon" onclick="saveResult('tryon')" style="display:none">存入试穿库</button>
+      </div>
+      <div class="meta" id="meta"></div>
+    </div>
+  </div>
+
+  <!-- ============ 仓库 ============ -->
+  <div id="vLib" class="view">
+    <div class="itabs">
+      <button class="on" onclick="switchLib('photo')">照片库</button>
+      <button onclick="switchLib('wardrobe')">衣橱库</button>
+      <button onclick="switchLib('tryon')">试穿库</button>
+      <button onclick="switchLib('t2i')">文生图库</button>
+    </div>
+    <button class="dlbtn" onclick="document.getElementById('libUpload').click()">＋ 上传到<span id="libName">照片库</span></button>
+    <input type="file" id="libUpload" accept="image/png,image/jpeg,image/webp" multiple style="display:none">
+    <div id="tagbar" class="tagbar" style="display:none"></div>
+    <div id="libGrid" class="libGrid"></div>
+  </div>
+
+  <!-- ============ 管理员 ============ -->
+  <div id="vAdm" class="view">
+    <h3 style="margin:4px 0">运营参数</h3>
+    <div id="cfgBox"></div>
+    <button class="dlbtn" style="background:var(--acc);color:var(--onacc);border:0;font-weight:600" onclick="saveConfig()">保存运营参数</button>
+    <h3 style="margin:24px 0 4px">用户管理</h3>
+    <table class="adm" id="userTable"></table>
+  </div>
+</div>
+
+<!-- 画笔弹层 -->
+<div id="modal"><div class="mwrap">
+  <div class="mbar">
+    <span class="title" id="ptitle">画圈标注</span>
+    <span style="color:var(--dim);font-size:13px">画笔粗细</span>
+    <input type="range" id="brush" min="8" max="140" value="36">
+    <button id="undoBtn">撤销</button><button id="clearBtn">清空</button>
+    <button id="cancelBtn">取消</button><button id="saveBtn" class="primary">保存</button>
+  </div>
+  <canvas id="pcanvas"></canvas>
+  <div class="mhint" id="mhint"></div>
+</div></div>
+
+<!-- 仓库选图弹层 -->
+<div id="picker"><div class="mwrap">
+  <div class="mbar"><span class="title">从仓库选图</span>
+    <button onclick="document.getElementById('picker').classList.remove('on')">关闭</button></div>
+  <div style="color:var(--dim);font-size:13px;margin-bottom:8px">点击图片即作为参考图加入（照片库 / 衣橱库）</div>
+  <div id="pickerGrid" class="pickerGrid"></div>
+</div></div>
+
+<!-- 大图预览弹层 -->
+<div id="lightbox"><div class="mwrap" style="max-width:760px">
+  <div class="mbar"><span class="title" id="lbTitle">图片</span><button onclick="$('lightbox').classList.remove('on')">关闭</button></div>
+  <img id="lbImg" style="max-width:100%;max-height:60vh;border-radius:10px;display:block;margin:0 auto">
+  <div class="acts" style="justify-content:center;margin-top:12px">
+    <a class="dlbtn" id="lbOpen" target="_blank" rel="noopener">🔍 新标签打开</a>
+    <a class="dlbtn" id="lbDl" download>⬇️ 下载</a>
+    <button class="dlbtn" onclick="lbRename()">✏️ 重命名</button>
+    <button class="dlbtn" onclick="lbToggleTags()">🏷 编辑标签</button>
+  </div>
+  <div id="lbTags" style="display:none;margin-top:14px"></div>
+</div></div>
+
+<div id="toast"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+function applyTheme(t){ document.documentElement.dataset.theme=t; const b=$('themeBtn'); if(b) b.textContent=t==='dark'?'☀️':'🌙'; try{localStorage.setItem('qwz_theme',t)}catch(e){} }
+function toggleTheme(){ applyTheme(document.documentElement.dataset.theme==='dark'?'light':'dark'); }
+let ME = null, libKind = 'photo', libItems = [], allTags = [], tagFilter = new Set();
+let mode = 't2i', refs = [], timer = null, lastResult = null;
+
+/* ---------- 鉴权 / 顶栏 ---------- */
+async function bootstrap() {
+  try {
+    const r = await (await fetch('/api/me')).json();
+    if (!r.user) { location.href = '/login'; return; }
+    ME = r.user; setUser();
+  } catch (e) { location.href = '/login'; return; }
+  const s = await (await fetch('/api/settings')).json();
+  fetch('/api/health').then(r => r.json()).then(d => {
+    if (d && !d.comfy) $('banner').textContent = '本地 ComfyUI 未运行——用「云端」出图不受影响；用「本地」请先执行 ~/qwen-image21/start_all.sh 启动 ComfyUI。';
+  }).catch(() => {});
+  refreshMem();
+}
+function setUser() {
+  $('userLabel').textContent = ME.username + (ME.role === 'admin' ? ' · 管理员' : (ME.is_member ? ' · 会员' : ''));
+  $('creditsLabel').textContent = ME.credits + ' 积分';
+  if (ME.role === 'admin') $('otAdm').style.display = '';
+  // 后端权限
+  document.querySelectorAll('input[name=backend]').forEach(r => {
+    const v = r.value, dis = (v === 'cloud' && !ME.allow_cloud) || (v === 'local' && !ME.allow_local);
+    r.disabled = dis;
+    if (dis && r.checked) { const o = document.querySelector('input[name=backend]:not(:disabled)'); if (o) o.checked = true; }
+  });
+  updateBackendHint();
+}
+async function refreshCredits() {
+  const r = await (await fetch('/api/me')).json();
+  if (r.user) { ME = r.user; $('creditsLabel').textContent = ME.credits + ' 积分'; }
+}
+function showView(v) {
+  ['Gen','Lib','Adm'].forEach(x => $('v'+x).classList.remove('on'));
+  ['otGen','otLib','otAdm'].forEach(x => $(''+x).classList.remove('on'));
+  $('v' + (v === 'gen' ? 'Gen' : v === 'lib' ? 'Lib' : 'Adm')).classList.add('on');
+  $('ot' + (v === 'gen' ? 'Gen' : v === 'lib' ? 'Lib' : 'Adm')).classList.add('on');
+  if (v === 'lib') switchLib(libKind);
+  if (v === 'adm') loadAdmin();
+}
+
+/* ---------- 常用提示词 ---------- */
+const PRESETS = {
+  t2i: ['雨夜街头，霓虹灯牌上写着"你好"，地面有倒影，电影感摄影','一只橘猫趴在洒满午后阳光的窗台上，窗外绿树，写实摄影，浅景深'],
+  edit: ['将<image2>的衣服，换到<image1>的人物身上，保持人物面部和背景不变','把 <image1> 中的人物背景换成日落海滩，保持人物不变'],
+};
+function renderChips() {
+  const box = $('chips'); box.innerHTML = '';
+  const lbl = document.createElement('span'); lbl.className = 'lbl'; lbl.textContent = '常用提示词（点击填充）：'; box.appendChild(lbl);
+  (PRESETS[mode] || []).forEach(txt => { const c = document.createElement('span'); c.className = 'chip'; c.textContent = txt; c.onclick = () => { $('prompt').value = txt; $('prompt').focus(); }; box.appendChild(c); });
+}
+
+/* ---------- 内存 ---------- */
+async function refreshMem() {
+  if (!$('memInfo')) return;
+  if (currentBackend() === 'cloud') { $('memInfo').textContent = '云端模式（不占用本机内存）'; return; }
+  try {
+    const m = await (await fetch('/api/mem')).json();
+    $('memInfo').textContent = m.error ? '内存：读取失败（ComfyUI 未运行？）' : `内存：已用 ${m.used_gb} / ${m.total_gb} GB`;
+  } catch (e) { $('memInfo').textContent = '内存：读取失败'; }
+}
+$('freeBtn').onclick = async () => {
+  $('freeBtn').disabled = true; $('memInfo').textContent = '正在释放模型内存…';
+  try { const r = await (await fetch('/api/free', { method:'POST', body:'{}' })).json(); if (!r.ok) { $('memInfo').textContent = '释放失败：'+(r.error||''); $('freeBtn').disabled=false; return; } } catch(e) { $('memInfo').textContent='释放失败：'+e; $('freeBtn').disabled=false; return; }
+  await new Promise(r=>setTimeout(r,1500)); await refreshMem(); $('freeBtn').disabled=false;
+  $('freeHint').textContent='已释放（下次本地生成会重新加载模型）'; setTimeout(()=>$('freeHint').textContent='',8000);
+};
+
+/* ---------- 出图后端 ---------- */
+function currentBackend() { const r = document.querySelector('input[name=backend]:checked'); return r ? r.value : 'local'; }
+function updateBackendHint() {
+  const b = currentBackend();
+  let t = b === 'cloud' ? '云端百炼：turbo ¥0.1/张（约 10–25 秒），pro ¥0.25/张（约 35–40 秒）' : '本地：turbo≈1.5 分钟/张，40 步≈25 分钟/张（免费，占本机内存）';
+  if (b === 'cloud' && mode === 'edit' && refs[0] && refs[0].mask) t += ' ｜ ⚠️ 含蒙版，云端不可用，请切本地';
+  $('backendHint').textContent = t;
+}
+document.querySelectorAll('input[name=backend]').forEach(r => r.addEventListener('change', () => { updateBackendHint(); refreshMem(); }));
+
+/* ---------- 模式切换 ---------- */
+$('tabT2i').onclick = () => switchMode('t2i');
+$('tabEdit').onclick = () => switchMode('edit');
+function switchMode(m) {
+  mode = m;
+  $('tabT2i').classList.toggle('on', m === 't2i'); $('tabEdit').classList.toggle('on', m === 'edit');
+  $('editBox').style.display = m === 'edit' ? 'block' : 'none';
+  $('sizeBox').style.display = m === 't2i' ? 'block' : 'none'; $('resBox').style.display = m === 'edit' ? 'block' : 'none';
+  $('refHint').style.display = (m === 'edit' && refs.length) ? 'block' : 'none';
+  renderChips();
+  $('promptLabel').textContent = m === 'edit' ? '修改要求（描述希望图片发生什么变化）' : '提示词（描述你想要的画面）';
+  $('prompt').placeholder = m === 'edit' ? '例如：把 <image2> 中的商品放到 <image1> 的场景中' : '例如：雨夜街头，霓虹灯牌写着"你好"';
+  updateOutHint(); updateBackendHint();
+  $('saveT2i').style.display = (m === 't2i') ? '' : 'none';
+  $('saveTryon').style.display = (m === 'edit') ? '' : 'none';
+}
+
+/* ---------- 参考图 ---------- */
+const drop = $('drop'), fileInput = $('file');
+drop.onclick = () => fileInput.click();
+drop.ondragover = e => { e.preventDefault(); drop.classList.add('hover'); };
+drop.ondragleave = () => drop.classList.remove('hover');
+drop.ondrop = e => { e.preventDefault(); drop.classList.remove('hover'); for (const f of e.dataTransfer.files) addFile(f); };
+fileInput.onchange = () => { for (const f of fileInput.files) addFile(f); fileInput.value = ''; };
+function addFile(f) {
+  if (!f.type.startsWith('image/')) return;
+  if (refs.length >= 10) { setStatus('最多 10 张参考图', true); return; }
+  const img = new Image(), rd = new FileReader();
+  rd.onload = () => { img.onload = () => {
+    let w = img.naturalWidth, h = img.naturalHeight; const s = Math.min(1, 2048 / Math.max(w, h)); w = Math.round(w*s); h = Math.round(h*s);
+    const c = document.createElement('canvas'); c.width = w; c.height = h; c.getContext('2d').drawImage(img,0,0,w,h);
+    const isPng = /png/i.test(f.type) || /\.png$/i.test(f.name);
+    const dataUrl = c.toDataURL(isPng?'image/png':'image/jpeg', 0.92), b64 = dataUrl.split(',')[1];
+    refs.push({ dataUrl, b64, ext: isPng?'png':'jpg', name: f.name, w, h, orig: { b64, ext: isPng?'png':'jpg' }, annotated:false, mask:null });
+    renderRefs(); updateOutHint(); updateBackendHint();
+  }; img.src = rd.result; };
+  rd.readAsDataURL(f);
+}
+function addRefFromDataURL(dataUrl, name) {
+  const img = new Image(); img.onload = () => {
+    let w = img.naturalWidth, h = img.naturalHeight; const s = Math.min(1, 2048/Math.max(w,h)); w=Math.round(w*s); h=Math.round(h*s);
+    const c = document.createElement('canvas'); c.width=w; c.height=h; c.getContext('2d').drawImage(img,0,0,w,h);
+    const b64 = dataUrl.split(',')[1];
+    refs.push({ dataUrl, b64, ext:'png', name: name||'from-lib', w, h, orig:{b64, ext:'png'}, annotated:false, mask:null });
+    renderRefs(); updateOutHint(); updateBackendHint();
+  }; img.src = dataUrl;
+}
+function renderRefs() {
+  const box = $('refs'); box.innerHTML = '';
+  refs.forEach((r, i) => {
+    const card = document.createElement('div'); card.className = 'refCard';
+    const img = document.createElement('img'); img.src = r.dataUrl; card.appendChild(img);
+    const badge = document.createElement('span'); badge.className = 'badge'; badge.textContent = '图'+(i+1); card.appendChild(badge);
+    if (r.annotated) { const t = document.createElement('span'); t.className='tag'; t.textContent='已标注'; card.appendChild(t); }
+    if (r.mask) { const t = document.createElement('span'); t.className='tag'; t.textContent='已涂蒙版'; card.appendChild(t); }
+    const ops = document.createElement('div'); ops.className = 'ops';
+    const bAnno = document.createElement('button'); bAnno.textContent = '✏️ 标注'; bAnno.onclick = () => openPainter(i,'annotate'); ops.appendChild(bAnno);
+    if (i === 0) { const bMask = document.createElement('button'); bMask.textContent = r.mask?'🧹 重涂':'🖌 蒙版'; bMask.onclick = () => openPainter(i,'mask'); ops.appendChild(bMask); }
+    const bDel = document.createElement('button'); bDel.textContent='🗑'; bDel.onclick = () => { refs.splice(i,1); renderRefs(); }; ops.appendChild(bDel);
+    card.appendChild(ops); box.appendChild(card);
+  });
+  $('refHint').style.display = refs.length ? 'block' : 'none'; updateOutHint();
+}
+
+/* ---------- 画笔 ---------- */
+const modal = $('modal'), pcanvas = $('pcanvas'), pctx = pcanvas.getContext('2d');
+let painter = { idx:-1, tool:'annotate', img:null, strokes:[], cur:null, scale:1, dispW:0, dispH:0, naturalW:0, naturalH:0 };
+function openPainter(idx, tool) {
+  const r = refs[idx], img = new Image();
+  img.onload = () => {
+    painter.idx=idx; painter.tool=tool; painter.img=img; painter.strokes=[]; painter.cur=null;
+    painter.naturalW=img.naturalWidth; painter.naturalH=img.naturalHeight;
+    const maxW=Math.min(window.innerWidth-80,860), maxH=window.innerHeight-220;
+    painter.scale=Math.min(maxW/img.naturalWidth, maxH/img.naturalHeight, 1);
+    painter.dispW=Math.round(img.naturalWidth*painter.scale); painter.dispH=Math.round(img.naturalHeight*painter.scale);
+    pcanvas.width=painter.dispW; pcanvas.height=painter.dispH;
+    $('ptitle').textContent = tool==='annotate' ? '画圈/涂鸦标注（图'+(idx+1)+'）' : '涂蒙版——涂出要重绘的区域（图'+(idx+1)+'）';
+    $('mhint').textContent = tool==='annotate' ? '用红圈标出目标区域，保存后在提示词里描述要如何修改' : '把要重绘的地方涂满红色，保存后在提示词里描述涂红区变成什么（仅本地可用）';
+    modal.classList.add('on'); redrawPainter();
+  }; img.src = r.dataUrl;
+}
+function redrawPainter() {
+  pctx.setTransform(1,0,0,1,0,0); pctx.clearRect(0,0,pcanvas.width,pcanvas.height);
+  if (painter.tool==='mask') pctx.filter='brightness(0.45)';
+  pctx.drawImage(painter.img,0,0,painter.dispW,painter.dispH); pctx.filter='none';
+  pctx.lineCap='round'; pctx.lineJoin='round'; pctx.strokeStyle='rgba(255,20,20,0.85)';
+  const ds = st => { pctx.lineWidth=st.w*painter.scale; pctx.beginPath(); st.pts.forEach((p,k)=>{const x=p[0]*painter.scale,y=p[1]*painter.scale;k===0?pctx.moveTo(x,y):pctx.lineTo(x,y);}); if(st.pts.length===1){const p=st.pts[0];pctx.lineTo(p[0]*painter.scale+0.01,p[1]*painter.scale);} pctx.stroke(); };
+  painter.strokes.forEach(ds); if (painter.cur) ds(painter.cur);
+}
+function ptFromEvent(e){const r=pcanvas.getBoundingClientRect();return[(e.clientX-r.left)/painter.scale,(e.clientY-r.top)/painter.scale];}
+pcanvas.addEventListener('pointerdown',e=>{pcanvas.setPointerCapture(e.pointerId);painter.cur={w:Number($('brush').value),pts:[ptFromEvent(e)]};redrawPainter();});
+pcanvas.addEventListener('pointermove',e=>{if(!painter.cur)return;painter.cur.pts.push(ptFromEvent(e));redrawPainter();});
+pcanvas.addEventListener('pointerup',()=>{if(!painter.cur)return;painter.strokes.push(painter.cur);painter.cur=null;redrawPainter();});
+$('undoBtn').onclick=()=>{painter.strokes.pop();redrawPainter();};
+$('clearBtn').onclick=()=>{painter.strokes=[];redrawPainter();};
+$('cancelBtn').onclick=()=>modal.classList.remove('on');
+$('saveBtn').onclick=()=>{
+  const r=refs[painter.idx], c=document.createElement('canvas'); c.width=painter.naturalW;c.height=painter.naturalH;const ctx=c.getContext('2d');
+  if(painter.tool==='annotate'){ctx.drawImage(painter.img,0,0);ctx.lineCap='round';ctx.lineJoin='round';ctx.strokeStyle='rgba(255,20,20,0.88)';}
+  else{ctx.fillStyle='#000';ctx.fillRect(0,0,c.width,c.height);ctx.lineCap='round';ctx.lineJoin='round';ctx.strokeStyle='#ff0000';}
+  const st=s=>{ctx.lineWidth=s.w;ctx.beginPath();s.pts.forEach((p,k)=>{k===0?ctx.moveTo(p[0],p[1]):ctx.lineTo(p[0],p[1]);});if(s.pts.length===1)ctx.lineTo(s.pts[0][0]+0.01,s.pts[0][1]);ctx.stroke();};
+  painter.strokes.forEach(st);
+  const url=c.toDataURL('image/png');
+  if(painter.tool==='annotate'){r.dataUrl=url;r.b64=url.split(',')[1];r.ext='png';r.annotated=true;}
+  else{r.mask=url.split(',')[1];}
+  modal.classList.remove('on');renderRefs();updateBackendHint();
+};
+
+/* ---------- 编辑清晰度 ---------- */
+function predOutSize(res,rw,rh){const ratio=rw/rh;const w=Math.round(Math.sqrt(res*res*ratio)/32)*32,h=Math.round(Math.sqrt(res*res/ratio)/32)*32;return[w,h];}
+function resForLongSide(L,rw,rh){const ratio=rw/rh;const r=ratio>=1?L/Math.sqrt(ratio):L*Math.sqrt(ratio);return Math.max(256,Math.min(4096,Math.round(r)));}
+function currentResolution(){const sel=$('resolution').value;if(sel!=='custom')return Number(sel);const L=Number($('longSide').value)||1600;const r0=refs[0];if(r0&&r0.w&&r0.h)return resForLongSide(L,r0.w,r0.h);return Math.max(256,Math.min(4096,Math.round(L)));}
+function updateOutHint(){
+  $('customResBox').style.display=$('resolution').value==='custom'?'block':'none';
+  const hint=$('outSizeHint'); if(mode!=='edit'){hint.textContent='';return;}
+  const r0=refs[0]; if(!r0||!r0.w||!r0.h){hint.textContent='上传参考图后显示预计输出尺寸';return;}
+  const res=currentResolution();
+  if(r0.mask){let w=r0.w,h=r0.h,note='源图原尺寸';if(r0.w*r0.h>res*res){const s=Math.sqrt(res*res/(r0.w*r0.h));w=Math.max(8,Math.round(r0.w*s/8)*8);h=Math.max(8,Math.round(r0.h*s/8)*8);note='源图缩到档位以内';}hint.textContent=`预计输出：${w}×${h}（蒙版模式：${note}）`;}
+  else{const[w,h]=predOutSize(res,r0.w,r0.h);hint.textContent=`预计输出：${w}×${h}（跟随图1比例）`;}
+}
+$('resolution').addEventListener('change',updateOutHint);
+$('longSide').addEventListener('input',updateOutHint);
+
+/* ---------- 提交 ---------- */
+function setStatus(t,isErr){const s=$('status');s.textContent=t;s.className=isErr?'err':'';}
+$('genBtn').onclick = async () => {
+  $('genBtn').disabled = true; $('result').style.display = 'none';
+  const [w,h] = $('size').value.split('x').map(Number);
+  const body = {
+    mode, backend: currentBackend(), quality: document.querySelector('input[name=q]:checked').value,
+    prompt: $('prompt').value, negative: $('negative').value,
+    seed: $('seed').value.trim(), width: w, height: h, resolution: currentResolution(),
+    refs: mode === 'edit' ? refs.map((r,i) => { const useOrig = i===0 && r.mask && r.orig; return { b64: useOrig?r.orig.b64:r.b64, ext: useOrig?r.orig.ext:r.ext }; }) : [],
+    mask_b64: (mode === 'edit' && refs[0] && refs[0].mask) ? refs[0].mask : null,
+  };
+  let resp;
+  try { resp = await (await fetch('/api/generate', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) })).json(); }
+  catch (e) { setStatus('请求失败：'+e, true); $('genBtn').disabled=false; return; }
+  if (resp.error) { setStatus('✖ '+resp.error, true); $('genBtn').disabled=false; return; }
+  refreshCredits();
+  const t0 = Date.now(); clearInterval(timer);
+  timer = setInterval(async () => {
+    const el = Math.floor((Date.now()-t0)/1000);
+    let st; try { st = await (await fetch('/api/status?id='+resp.prompt_id)).json(); } catch(e){ return; }
+    if (st.state === 'queued' || st.state === 'running') { setStatus(`⏳ 生成中… 已等待 ${el} 秒`); }
+    else if (st.state === 'error') { clearInterval(timer); $('genBtn').disabled=false; setStatus('✖ 生成失败：'+(st.message||'未知错误'), true); refreshCredits(); }
+    else if (st.state === 'done') {
+      clearInterval(timer); $('genBtn').disabled=false; setStatus(`✔ 完成，用时 ${el} 秒`); refreshCredits();
+      if (st.images && st.images.length) {
+        const im0 = st.images[0]; lastResult = im0;
+        const base = new URL(im0.url, location.origin); const u = new URL(base); u.searchParams.set('t', Date.now());
+        const img = $('resultImg');
+        img.onload = () => { if (!$('meta').textContent.includes('尺寸：')) $('meta').textContent += `  ｜  尺寸：${img.naturalWidth}×${img.naturalHeight}`; };
+        img.src = u.toString();
+        const dl = new URL(base); dl.searchParams.set('download','1');
+        $('dlBtn').href = dl.toString(); $('dlBtn').setAttribute('download', im0.name);
+        $('openBtn').href = base.toString();
+        $('result').style.display = 'block';
+        $('meta').textContent = `文件：${im0.name}`;
+      }
+    }
+  }, 3000);
+};
+async function saveResult(kind) {
+  if (!lastResult) return;
+  const params = new URLSearchParams(new URL(lastResult.url, location.origin).search);
+  const body = { kind, filename: params.get('filename')||lastResult.name, subfolder: params.get('subfolder')||'', type: params.get('type')||'output', tags: [] };
+  const r = await (await fetch('/api/items/fromfile', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) })).json();
+  if (r.error) { toast('存入失败：'+r.error, true); return; }
+  toast('✔ 已存入' + (kind==='photo'?'照片库':kind==='tryon'?'试穿库':'文生图库'));
+}
+
+/* ---------- 仓库选图弹层 ---------- */
+async function openPicker() {
+  $('picker').classList.add('on'); $('pickerGrid').innerHTML = '加载中…';
+  let all = [];
+  for (const k of ['photo','wardrobe','t2i']) {
+    const r = await (await fetch('/api/items?kind='+k)).json();
+    (r.items||[]).forEach(it => all.push(it));
+  }
+  const g = $('pickerGrid'); g.innerHTML = '';
+  if (!all.length) { g.textContent = '照片库和衣橱库都还没有图片'; return; }
+  all.forEach(it => {
+    const img = document.createElement('img'); img.src = '/api/lib?item='+it.id;
+    img.title = it.orig_name || ''; img.onclick = () => {
+      fetch('/api/lib?item='+it.id).then(r=>r.blob()).then(b=>{
+        const rd = new FileReader(); rd.onload = () => { addRefFromDataURL(rd.result, it.orig_name); $('picker').classList.remove('on'); }; rd.readAsDataURL(b);
+      });
+    };
+    g.appendChild(img);
+  });
+}
+
+/* ---------- 仓库 ---------- */
+const LIB_NAME = { photo:'照片库', wardrobe:'衣橱库', tryon:'试穿库', t2i:'文生图库' };
+function switchLib(k) {
+  libKind = k; $('libName').textContent = LIB_NAME[k]; tagFilter.clear();
+  document.querySelectorAll('#vLib .itabs button').forEach((b,i) => b.classList.toggle('on', ['photo','wardrobe','tryon','t2i'].indexOf(k)===i));
+  loadLibrary();
+}
+$('libUpload').onchange = async () => {
+  for (const f of $('libUpload').files) {
+    const rd = new FileReader();
+    await new Promise(res => { rd.onload = async () => {
+      const isPng = /png/i.test(f.type) || /\.png$/i.test(f.name);
+      const r = await (await fetch('/api/items', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ kind:libKind, b64:rd.result.split(',')[1], ext:isPng?'png':'jpg', orig_name:f.name, tags: [] }) })).json();
+      res();
+    }; rd.readAsDataURL(f); });
+  }
+  $('libUpload').value = ''; loadLibrary(); toast('已上传');
+};
+async function loadLibrary() {
+  const [it, tg] = await Promise.all([
+    (await fetch('/api/items?kind='+libKind)).json(),
+    (await fetch('/api/tags')).json(),
+  ]);
+  libItems = it.items || []; allTags = tg.tags || [];
+  renderTagbar(); renderLibrary();
+}
+function renderTagbar() {
+  const bar = $('tagbar'); bar.innerHTML = ''; bar.style.display = 'flex';
+  const lbl = document.createElement('span'); lbl.className='lbl'; lbl.style.color='var(--dim)'; lbl.style.fontSize='12.5px'; lbl.textContent='标签筛选：'; bar.appendChild(lbl);
+  allTags.forEach(t => {
+    const c = document.createElement('span'); c.className = 'tg' + (tagFilter.has(t.id)?' on':''); c.textContent = t.name;
+    c.onclick = () => { if (tagFilter.has(t.id)) tagFilter.delete(t.id); else tagFilter.add(t.id); renderTagbar(); renderLibrary(); };
+    bar.appendChild(c);
+  });
+  const add = document.createElement('span'); add.className='add'; add.textContent='＋ 新标签';
+  add.onclick = async () => {
+    const name = prompt('新标签名称'); if (!name) return;
+    const r = await (await fetch('/api/tags', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ name, kind:'自定义' }) })).json();
+    if (r.error) { toast(r.error, true); return; }
+    toast('已添加标签'); loadLibrary();
+  };
+  bar.appendChild(add);
+}
+function renderLibrary() {
+  const g = $('libGrid'); g.innerHTML = '';
+  let items = libItems;
+  if (tagFilter.size) items = items.filter(it => (it.tags||[]).some(t => tagFilter.has(t)));
+  if (!items.length) { g.textContent = '空空如也，点上方「上传」添加'; g.style.color='var(--dim)'; return; }
+  g.style.color = '';
+  items.forEach(it => {
+    const card = document.createElement('div'); card.className = 'libCard';
+    const img = document.createElement('img'); img.src = '/api/lib?item='+it.id;
+    img.onclick = () => openLightbox(it);
+    card.appendChild(img);
+    const del = document.createElement('button'); del.className='del'; del.textContent='🗑'; del.onclick = async (e) => {
+      e.stopPropagation(); if (!confirm('删除这张图？')) return;
+      await fetch('/api/items/'+it.id, { method:'DELETE' }); loadLibrary(); toast('已删除');
+    };
+    card.appendChild(del);
+    const fn = document.createElement('div'); fn.className='fname'; fn.textContent = it.orig_name || it.filename;
+    card.appendChild(fn);
+    const tl = document.createElement('div'); tl.className='tlist';
+    tl.textContent = (it.tags||[]).map(id => { const t=allTags.find(x=>x.id===id); return t?t.name:''; }).filter(Boolean).join(' / ') || '—';
+    card.appendChild(tl);
+    g.appendChild(card);
+  });
+}
+let toastTimer = null;
+function toast(msg, isErr) {
+  const t = $('toast'); if (!t) return; t.textContent = msg; t.className = 'on' + (isErr ? ' err' : '');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.className = ''; }, 2500);
+}
+let lbItem = null;
+function openLightbox(it) {
+  lbItem = it;
+  $('lightbox').classList.add('on');
+  $('lbImg').src = '/api/lib?item='+it.id+'&t='+Date.now();
+  $('lbTitle').textContent = it.orig_name || it.filename;
+  $('lbOpen').href = '/api/lib?item='+it.id;
+  const dl = $('lbDl'); dl.href = '/api/lib?item='+it.id+'&download=1'; dl.setAttribute('download', it.orig_name||it.filename);
+  $('lbTags').style.display = 'none';
+}
+function lbRename() {
+  if (!lbItem) return;
+  const name = prompt('新名称', lbItem.orig_name || lbItem.filename); if (name === null) return;
+  fetch('/api/items/'+lbItem.id+'/rename', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name}) })
+    .then(r => r.json()).then(r => { if (r.error) { toast(r.error, true); return; } toast('已重命名'); lbItem.orig_name = name; $('lbTitle').textContent = name; loadLibrary(); });
+}
+function lbToggleTags() {
+  const box = $('lbTags');
+  if (box.style.display === 'none') {
+    box.style.display = 'block';
+    const ids = new Set(lbItem.tags || []);
+    box.innerHTML = '<div style="color:var(--dim);font-size:13px;margin-bottom:8px">勾选后点保存</div>' +
+      allTags.map(t => `<label style="display:block;color:var(--txt);font-size:14px;margin:3px 0"><input type="checkbox" value="${t.id}" ${ids.has(t.id)?'checked':''}> ${t.name}${t.kind?' ('+t.kind+')':''}</label>`).join('') +
+      `<button class="dlbtn" style="margin-top:10px" onclick="lbSaveTags()">保存标签</button>`;
+  } else { box.style.display = 'none'; }
+}
+function lbSaveTags() {
+  const sel = [...$('lbTags').querySelectorAll('input:checked')].map(c => Number(c.value));
+  fetch('/api/items/'+lbItem.id+'/tags', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ tag_ids: sel }) })
+    .then(r => r.json()).then(r => { if (r.error) { toast(r.error, true); return; } lbItem.tags = sel; toast('标签已更新'); loadLibrary(); lbToggleTags(); });
+}
+
+/* ---------- 管理员 ---------- */
+async function loadAdmin() {
+  const [u, c] = await Promise.all([(await fetch('/api/admin/users')).json(), (await fetch('/api/admin/config')).json()]);
+  if (u.error || c.error) return;
+  renderConfig(c.config); renderUsers(u.users);
+}
+function renderConfig(cfg) {
+  const fields = [
+    ['signup_code','注册码（空=用旧口令）'],['allow_open_signup','开放注册（1/0）'],
+    ['signup_bonus','注册赠送积分'],['cost_turbo','turbo 消耗积分'],['cost_standard','高质量消耗积分'],
+    ['member_daily','会员每日刷新'],['member_daily_cap','会员积分上限'],
+  ];
+  $('cfgBox').innerHTML = fields.map(([k,t]) => `<div class="cfgrow"><label>${t}</label><input id="cfg_${k}" value="${cfg[k]??''}"></div>`).join('');
+}
+async function saveConfig() {
+  const body = {};
+  ['signup_code','allow_open_signup','signup_bonus','cost_turbo','cost_standard','member_daily','member_daily_cap'].forEach(k => body[k] = $('cfg_'+k).value);
+  const r = await (await fetch('/api/admin/config', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) })).json();
+  alert(r.error || '已保存');
+}
+function renderUsers(users) {
+  let h = '<tr><th>ID</th><th>用户名</th><th>角色</th><th>积分</th><th>会员</th><th>本地</th><th>云端</th><th></th></tr>';
+  users.forEach(u => {
+    h += `<tr><td>${u.id}</td><td>${u.username}</td>
+      <td><select data-f="role" data-id="${u.id}"><option value="user" ${u.role==='user'?'selected':''}>user</option><option value="admin" ${u.role==='admin'?'selected':''}>admin</option></select></td>
+      <td><input type="number" data-f="credits" data-id="${u.id}" value="${u.credits}"></td>
+      <td><input type="checkbox" data-f="is_member" data-id="${u.id}" ${u.is_member?'checked':''}></td>
+      <td><input type="checkbox" data-f="allow_local" data-id="${u.id}" ${u.allow_local?'checked':''}></td>
+      <td><input type="checkbox" data-f="allow_cloud" data-id="${u.id}" ${u.allow_cloud?'checked':''}></td>
+      <td><button class="dlbtn" onclick="saveUser(${u.id})">保存</button></td></tr>`;
+  });
+  $('userTable').innerHTML = h;
+}
+async function saveUser(id) {
+  const body = { id };
+  document.querySelectorAll(`[data-id="${id}"]`).forEach(el => {
+    const f = el.dataset.f, v = el.type === 'checkbox' ? (el.checked?1:0) : (f === 'credits' ? Number(el.value) : el.value);
+    body[f] = v;
+  });
+  const r = await (await fetch('/api/admin/user', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) })).json();
+  if (r.error) alert(r.error); else { alert('已保存'); loadAdmin(); if (id === ME.id) refreshCredits().then(setUser); }
+}
+
+applyTheme(document.documentElement.dataset.theme||'light'); bootstrap(); renderChips(); updateBackendHint();
+</script>
+</body>
+</html>

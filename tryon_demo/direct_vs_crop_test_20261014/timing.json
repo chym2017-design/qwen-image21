@@ -1,0 +1,66 @@
+{
+  "input": {
+    "person": [
+      1024,
+      1536
+    ],
+    "clothes": [
+      1024,
+      1536
+    ]
+  },
+  "A1_native_res0": {
+    "note": "原生尺寸(resolution=0，与输入同比例 1536 级)",
+    "wall_s": 522.7,
+    "comfy_s": 522.01,
+    "canvas": [
+      1024,
+      1536
+    ]
+  },
+  "A2_res1024": {
+    "note": "1024 像素预算",
+    "wall_s": 702.9,
+    "comfy_s": null,
+    "canvas": [
+      832,
+      1248
+    ]
+  },
+  "A3_res512": {
+    "note": "512 像素预算（与 B 抠图画布同量级）",
+    "wall_s": 67.3,
+    "comfy_s": 66.34,
+    "canvas": [
+      416,
+      640
+    ]
+  },
+  "B_crop_paste": {
+    "matting_person_s": 14.8,
+    "matting_clothes_s": 8.5,
+    "gen_wall_s": 111.7,
+    "gen_comfy_s": 110.82,
+    "gen_canvas": [
+      416,
+      1376
+    ],
+    "matting_gen_result_s": 8.7,
+    "pasteback_s": 0.01,
+    "total_s": 143.7,
+    "total_excl_matting_s": 120.4
+  },
+  "metrics": {
+    "bg_drift_outside_person(A/B 越小=原背景保留越好)": {
+      "A1_native": 6.66,
+      "A2_1024": 7.48,
+      "A3_512": 3.83,
+      "B3_pasteback": 0.4
+    },
+    "身份相似度(与原人像)": {
+      "A1_native": 0.8311,
+      "A2_1024": 0.7461,
+      "B3_pasteback": 0.9098
+    }
+  }
+}

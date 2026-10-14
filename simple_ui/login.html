@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Qwen-Image-2.1 · 登录</title>
+<script>try{document.documentElement.dataset.theme=localStorage.getItem('qwz_theme')||'light'}catch(e){document.documentElement.dataset.theme='light'}</script>
+<style>
+  :root, :root[data-theme="light"] {
+    --bg:#f5f6f8; --bg2:#eaecef; --card:#ffffff; --line:#e2e5ea; --txt:#1a1d24; --dim:#6b7280;
+    --acc:#2563eb; --onacc:#ffffff; --onbg:#e8effd; --err:#dc2626;
+  }
+  :root[data-theme="dark"] {
+    --bg:#101216; --bg2:#15181e; --card:#1a1d24; --line:#2a2f3a; --txt:#e8eaef; --dim:#9aa3b2;
+    --acc:#6ea8fe; --onacc:#0b1220; --onbg:#1e2735; --err:#ff6b6b;
+  }
+  body { margin:0; background:var(--bg); color:var(--txt); font:15px/1.6 -apple-system,"PingFang SC",sans-serif; display:flex; align-items:center; justify-content:center; min-height:100vh; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:28px; width:min(92vw,380px); position:relative; }
+  .theme { position:absolute; top:12px; right:12px; background:transparent; border:1px solid var(--line); border-radius:8px; color:var(--dim); cursor:pointer; padding:3px 8px; font-size:13px; }
+  h1 { font-size:18px; margin:0 0 4px; }
+  p { color:var(--dim); font-size:13px; margin:0 0 16px; }
+  .seg { display:flex; gap:8px; margin-bottom:16px; }
+  .seg button { flex:1; padding:9px 0; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--dim); font-size:14px; cursor:pointer; }
+  .seg button.on { border-color:var(--acc); color:var(--txt); background:var(--onbg); }
+  label { display:block; font-size:13px; color:var(--dim); margin:10px 0 5px; }
+  input { width:100%; background:var(--bg2); color:var(--txt); border:1px solid var(--line); border-radius:10px; padding:11px 13px; font-size:15px; box-sizing:border-box; }
+  button.submit { width:100%; margin-top:16px; padding:12px 0; font-size:16px; font-weight:600; border:0; border-radius:11px; background:var(--acc); color:var(--onacc); cursor:pointer; }
+  .err { color:var(--err); font-size:13px; margin-top:10px; min-height:18px; }
+  .hint { color:var(--dim); font-size:12px; margin-top:6px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <button class="theme" onclick="toggleTheme()" id="themeBtn">🌙</button>
+  <h1>Qwen-Image-2.1</h1>
+  <p id="sub">登录到你的账号</p>
+  <div class="seg">
+    <button id="tabLogin" class="on" onclick="switchTab('login')">登录</button>
+    <button id="tabSignup" onclick="switchTab('signup')">注册</button>
+  </div>
+  <div id="codeBox" style="display:none">
+    <label>注册码</label>
+    <input id="code" placeholder="注册码（向管理员索取）" autocomplete="off">
+    <div class="hint">首个注册的用户自动成为管理员。</div>
+  </div>
+  <label>用户名</label>
+  <input id="username" placeholder="用户名" autocomplete="username">
+  <label>密码</label>
+  <input id="password" type="password" placeholder="密码（至少 6 位）" autocomplete="current-password">
+  <button class="submit" id="btn" onclick="submit()">登录</button>
+  <div class="err" id="err"></div>
+</div>
+<script>
+function applyTheme(t){ document.documentElement.dataset.theme=t; document.getElementById('themeBtn').textContent = t==='dark'?'☀️':'🌙'; try{localStorage.setItem('qwz_theme',t)}catch(e){} }
+function toggleTheme(){ applyTheme(document.documentElement.dataset.theme==='dark'?'light':'dark'); }
+applyTheme(document.documentElement.dataset.theme||'light');
+let mode = 'login';
+function switchTab(m) {
+  mode = m;
+  document.getElementById('tabLogin').classList.toggle('on', m === 'login');
+  document.getElementById('tabSignup').classList.toggle('on', m === 'signup');
+  document.getElementById('codeBox').style.display = m === 'signup' ? 'block' : 'none';
+  document.getElementById('btn').textContent = m === 'login' ? '登录' : '注册';
+  document.getElementById('sub').textContent = m === 'login' ? '登录到你的账号' : '创建新账号';
+  document.getElementById('err').textContent = '';
+}
+async function submit() {
+  const body = { username: document.getElementById('username').value.trim(), password: document.getElementById('password').value };
+  if (mode === 'signup') body.code = document.getElementById('code').value.trim();
+  const r = await (await fetch('/api/' + mode, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
+  if (r.error) { document.getElementById('err').textContent = r.error; return; }
+  location.href = '/';
+}
+['username', 'password'].forEach(id => document.getElementById(id).addEventListener('keydown', e => { if (e.key === 'Enter') submit(); }));
+</script>
+</body>
+</html>
