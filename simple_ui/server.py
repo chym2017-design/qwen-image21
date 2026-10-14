@@ -160,6 +160,51 @@ def _apply_resolution(wf, resolution):
             n["inputs"]["resolution"] = r
 
 
+# ---------------------------------------------------------------- 内存安全线（自动压缩）
+# 实测（32GB 机型）：参考图 + 画布总像素 ≳ 3MP 开始触发 swap，长边 1536 级以上风险很高。
+RES_TOTAL_BUDGET = 3_200_000   # 参考图 + 画布的总像素安全线
+RES_MAX = 1536                 # 单张预算上限（长边像素）
+
+
+def _memory_guard(data):
+    """按“参考图数量 + 1 张画布”把清晰度/尺寸压到内存安全线内（只降不升）。
+
+    返回压缩说明字符串（未压缩返回 None）；原地修改 data。
+    """
+    mode = data.get("mode", "t2i")
+    if mode == "t2i":
+        try:
+            w = int(data.get("width") or 1328)
+            h = int(data.get("height") or 1328)
+        except (TypeError, ValueError):
+            return None
+        w, h = max(512, min(2048, w)), max(512, min(2048, h))
+        if w * h > RES_TOTAL_BUDGET:            # 画布单独也设总预算
+            s = (RES_TOTAL_BUDGET / (w * h)) ** 0.5
+            w, h = max(512, int(w * s) // 8 * 8), max(512, int(h * s) // 8 * 8)
+        if (w, h) != (int(data.get("width") or 1328), int(data.get("height") or 1328)):
+            data["width"], data["height"] = w, h
+            return "输出尺寸压缩为 %d×%d" % (w, h)
+        return None
+    refs = data.get("refs") or []
+    raw = data.get("resolution")
+    if raw in (None, ""):
+        want = 1024
+    else:
+        try:
+            want = int(raw)
+        except (TypeError, ValueError):
+            want = 1024
+    if want <= 0:                                # 0 = 原尺寸：同样按安全线收敛
+        want = RES_MAX
+    n = max(1, len(refs) + 1)                    # 每张参考图 + 画布都约占 budget² 像素
+    allowed = max(256, min(RES_MAX, int((RES_TOTAL_BUDGET / n) ** 0.5)))
+    if want > allowed:
+        data["resolution"] = allowed
+        return "清晰度 %d → %d（%d 张参考图的内存安全线）" % (want, allowed, len(refs))
+    return None
+
+
 def build_t2i(data, quality, prompt, negative):
     wf = load_wf("turbo_t2i_api.json" if quality == "turbo" else "t2i_api.json")
     w = int(data.get("width") or 1328)
@@ -676,10 +721,12 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             pass
         try:
+            compressed = _memory_guard(data)          # 输入过大 → 自动压缩到内存安全线
             wf = build_job(data)
             _last_submit = now
             resp = comfy_post("/prompt", {"prompt": wf})
-            self._send(200, json.dumps({"prompt_id": resp.get("prompt_id"), "cost": cost}))
+            self._send(200, json.dumps({"prompt_id": resp.get("prompt_id"), "cost": cost,
+                                        "compressed": compressed}))
         except urllib.error.HTTPError as e:
             detail = e.read().decode(errors="replace")[:800]
             db.grant_credits(user["id"], cost, "退还：ComfyUI拒绝")

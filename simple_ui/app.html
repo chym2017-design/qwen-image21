@@ -180,7 +180,7 @@
       </label>
       <label>人物放大比例 %（默认 103：新人物略微放大，盖住旧衣边缘残留；100 = 不放大）</label>
       <input type="number" id="tyScale" value="103" min="100" max="150" step="1" style="width:120px;margin-bottom:10px">
-      <div class="hint">流程：抠图 → 小画布生成换装 → 贴回原背景（背景保持原样）。约 1–3 分钟；结果下方会展示抠图/生成等中间结果。</div>
+      <div class="hint">流程：抠图 → 小画布生成换装 → 贴回原背景（背景保持原样）。约 1–3 分钟；结果下方会展示抠图/生成等中间结果。输入图过大时自动压缩（长边 ≤1024）；放大贴回输出长边不超过 4096。</div>
       <button id="tyBtn" disabled>开始换装</button>
     </div>
     <label id="promptLabel">提示词（描述你想要的画面）</label>
@@ -387,6 +387,7 @@ function updateBackendHint() {
   const b = currentBackend();
   let t = b === 'cloud' ? '云端百炼：turbo ¥0.1/张（约 10–25 秒），pro ¥0.25/张（约 35–40 秒）' : '本地：turbo≈1.5 分钟/张，40 步≈25 分钟/张（免费，占本机内存）';
   if (b === 'cloud' && mode === 'edit' && refs[0] && refs[0].mask) t += ' ｜ ⚠️ 含蒙版，云端不可用，请切本地';
+  if (mode === 'edit') t += ' ｜ 图大/图多会自动压缩到内存安全线并提示';
   $('backendHint').textContent = t;
 }
 document.querySelectorAll('input[name=backend]').forEach(r => r.addEventListener('change', () => { updateBackendHint(); refreshMem(); }));
@@ -541,6 +542,7 @@ $('genBtn').onclick = async () => {
   try { resp = await (await fetch('/api/generate', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) })).json(); }
   catch (e) { setStatus('请求失败：'+e, true); $('genBtn').disabled=false; return; }
   if (resp.error) { setStatus('✖ '+resp.error, true); $('genBtn').disabled=false; return; }
+  if (resp.compressed) toast('⚠ ' + resp.compressed + '（已自动压缩，保护内存）');
   refreshCredits();
   const t0 = Date.now(); clearInterval(timer);
   timer = setInterval(async () => {

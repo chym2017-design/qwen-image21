@@ -17,6 +17,7 @@ import numpy as np
 
 PROMPT = "将<image2>的衣服穿到<image1>的人物身上，保持人物面部、姿态和背景不变"
 MAX_SIDE = 1024          # 输入缩放长边（内存安全线）
+UPSCALE_MAX_SIDE = 4096  # 放大贴回时输出长边上限（超大原图自动压缩后贴回）
 SUCCESS_DIFF = 25.0      # 剪影内平均色差阈值：< 则提示"可能未成功换装"
 
 
@@ -228,12 +229,21 @@ def run_tryon(person_bgr, clothes_bgr, generate_fn, prompt=None, upscale=False, 
     t0 = time.time()
     if upscale and s_p < 1.0:
         h0, w0 = person_bgr.shape[:2]
-        p_a_full = cv2.resize(p_a, (w0, h0), interpolation=cv2.INTER_LINEAR)
-        box_full = [int(round(v / s_p)) for v in pbox]
-        box_full[2] = min(box_full[2], w0)
-        box_full[3] = min(box_full[3], h0)
-        out = _paste_with_fill(person_bgr, gen, p_a_full, tuple(box_full), scale=scale)
-        log("贴回原图分辨率 %dx%d：新人物放大 %.0f%%" % (w0, h0, scale * 100))
+        f2 = 1.0
+        if max(h0, w0) > UPSCALE_MAX_SIDE:       # 超大原图：压缩后贴回，避免大矩阵爆内存
+            f2 = UPSCALE_MAX_SIDE / max(h0, w0)
+            base_img = cv2.resize(person_bgr, (max(8, int(round(w0 * f2))), max(8, int(round(h0 * f2)))),
+                                  interpolation=cv2.INTER_AREA)
+            log("原图 %dx%d 超过 %d，压缩后贴回" % (w0, h0, UPSCALE_MAX_SIDE))
+        else:
+            base_img = person_bgr
+        hb, wb = base_img.shape[:2]
+        p_a_full = cv2.resize(p_a, (wb, hb), interpolation=cv2.INTER_LINEAR)
+        box_full = [int(round(v / s_p * f2)) for v in pbox]
+        box_full[2] = min(box_full[2], wb)
+        box_full[3] = min(box_full[3], hb)
+        out = _paste_with_fill(base_img, gen, p_a_full, tuple(box_full), scale=scale)
+        log("贴回 %dx%d：新人物放大 %.0f%%" % (wb, hb, scale * 100))
     else:
         out = _paste_with_fill(person, gen, p_a, pbox, scale=scale)
     t["paste_s"] = round(time.time() - t0, 2)
