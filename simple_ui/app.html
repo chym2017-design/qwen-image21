@@ -69,7 +69,7 @@
   #drop.hover { border-color:var(--acc); color:var(--txt); }
   .refs { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:10px; margin-top:10px; }
   .refCard { background:var(--card); border:1px solid var(--line); border-radius:10px; overflow:hidden; position:relative; }
-  .refCard img { width:100%; height:120px; object-fit:cover; display:block; }
+  .refCard img { width:100%; height:120px; object-fit:contain; background:#0b0e13; display:block; cursor:zoom-in; }
   .refCard .badge { position:absolute; top:6px; left:6px; background:rgba(110,168,254,.92); color:#0b1220; font-size:12px; font-weight:700; border-radius:6px; padding:1px 7px; }
   .refCard .tag { position:absolute; top:6px; right:6px; background:rgba(245,196,81,.92); color:#3a2e08; font-size:11px; border-radius:6px; padding:1px 6px; }
   .refCard .ops { display:flex; gap:6px; padding:7px; }
@@ -98,7 +98,7 @@
   #pcanvas { background:#000; border:1px solid var(--line); border-radius:12px; touch-action:none; cursor:crosshair; display:block; margin:0 auto; }
   .mhint { color:var(--dim); font-size:13px; text-align:center; margin-top:10px; }
   .pickerGrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(120px,1fr)); gap:10px; max-height:70vh; overflow:auto; }
-  .pickerGrid img { width:100%; height:120px; object-fit:cover; border-radius:8px; border:1px solid var(--line); cursor:pointer; }
+  .pickerGrid img { width:100%; height:130px; object-fit:contain; background:#0b0e13; border-radius:8px; border:1px solid var(--line); cursor:zoom-in; }
   /* 提示 / 大图预览 */
   #toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%); background:var(--txt); color:var(--bg); padding:10px 20px; border-radius:10px; font-size:14px; opacity:0; transition:opacity .2s; pointer-events:none; z-index:100; max-width:80vw; }
   #toast.on { opacity:1; } #toast.err { background:var(--err); color:#fff; }
@@ -281,8 +281,14 @@
 <!-- 仓库选图弹层 -->
 <div id="picker"><div class="mwrap">
   <div class="mbar"><span class="title">从仓库选图</span>
-    <button onclick="document.getElementById('picker').classList.remove('on')">关闭</button></div>
-  <div style="color:var(--dim);font-size:13px;margin-bottom:8px">点击图片即作为参考图加入（照片库 / 衣橱库）</div>
+    <button onclick="closePicker()">关闭</button></div>
+  <div class="itabs" id="pickerTabs">
+    <button data-k="photo" class="on" onclick="pickerTab('photo')">照片库</button>
+    <button data-k="wardrobe" onclick="pickerTab('wardrobe')">衣橱库</button>
+    <button data-k="tryon" onclick="pickerTab('tryon')">试穿库</button>
+    <button data-k="t2i" onclick="pickerTab('t2i')">文生图库</button>
+  </div>
+  <div style="color:var(--dim);font-size:13px;margin-bottom:8px">点击图片先放大查看，在放大页点「✔ 选用这张」加入；也可直接关闭返回</div>
   <div id="pickerGrid" class="pickerGrid"></div>
 </div></div>
 
@@ -291,10 +297,11 @@
   <div class="mbar"><span class="title" id="lbTitle">图片</span><button onclick="$('lightbox').classList.remove('on')">关闭</button></div>
   <img id="lbImg" style="max-width:100%;max-height:60vh;border-radius:10px;display:block;margin:0 auto">
   <div class="acts" style="justify-content:center;margin-top:12px">
+    <button class="dlbtn save" id="lbPick" style="display:none">✔ 选用这张</button>
     <a class="dlbtn" id="lbOpen" target="_blank" rel="noopener">🔍 新标签打开</a>
     <a class="dlbtn" id="lbDl" download>⬇️ 下载</a>
-    <button class="dlbtn" onclick="lbRename()">✏️ 重命名</button>
-    <button class="dlbtn" onclick="lbToggleTags()">🏷 编辑标签</button>
+    <button class="dlbtn" id="lbRenameBtn" onclick="lbRename()">✏️ 重命名</button>
+    <button class="dlbtn" id="lbTagsBtn" onclick="lbToggleTags()">🏷 编辑标签</button>
   </div>
   <div id="lbTags" style="display:none;margin-top:14px"></div>
 </div></div>
@@ -444,7 +451,9 @@ function renderRefs() {
   const box = $('refs'); box.innerHTML = '';
   refs.forEach((r, i) => {
     const card = document.createElement('div'); card.className = 'refCard';
-    const img = document.createElement('img'); img.src = r.dataUrl; card.appendChild(img);
+    const img = document.createElement('img'); img.src = r.dataUrl;
+    img.onclick = () => openLightboxData(r.dataUrl, r.name);
+    card.appendChild(img);
     const badge = document.createElement('span'); badge.className = 'badge'; badge.textContent = '图'+(i+1); card.appendChild(badge);
     if (r.annotated) { const t = document.createElement('span'); t.className='tag'; t.textContent='已标注'; card.appendChild(t); }
     if (r.mask) { const t = document.createElement('span'); t.className='tag'; t.textContent='已涂蒙版'; card.appendChild(t); }
@@ -566,29 +575,36 @@ async function saveResult(kind) {
   toast('✔ 已存入' + (kind==='photo'?'照片库':kind==='tryon'?'试穿库':'文生图库'));
 }
 
-/* ---------- 仓库选图弹层 ---------- */
-async function openPicker(onPick, kinds) {
-  kinds = kinds || ['photo','wardrobe','t2i'];
-  $('picker').classList.add('on'); $('pickerGrid').innerHTML = '加载中…';
-  let all = [];
-  for (const k of kinds) {
-    const r = await (await fetch('/api/items?kind='+k)).json();
-    (r.items||[]).forEach(it => all.push(it));
-  }
-  const g = $('pickerGrid'); g.innerHTML = '';
-  if (!all.length) { g.textContent = '对应仓库里还没有图片'; return; }
-  all.forEach(it => {
-    const img = document.createElement('img'); img.src = '/api/lib?item='+it.id;
-    img.title = it.orig_name || ''; img.onclick = () => {
-      fetch('/api/lib?item='+it.id).then(r=>r.blob()).then(b=>{
-        const rd = new FileReader(); rd.onload = () => {
-          if (onPick) onPick(rd.result, it.orig_name); else addRefFromDataURL(rd.result, it.orig_name);
-          $('picker').classList.remove('on');
-        }; rd.readAsDataURL(b);
-      });
-    };
+/* ---------- 仓库选图弹层（4 个库可切换；点击放大预览后「选用这张」） ---------- */
+let pickerKind = 'photo', pickerCb = null;
+function closePicker() { $('picker').classList.remove('on'); }
+function pickerTab(k) {
+  pickerKind = k;
+  document.querySelectorAll('#pickerTabs button').forEach(b => b.classList.toggle('on', b.dataset.k === k));
+  renderPickerGrid();
+}
+async function renderPickerGrid() {
+  const g = $('pickerGrid'); g.innerHTML = '加载中…';
+  let items = [];
+  try { items = (await (await fetch('/api/items?kind=' + pickerKind)).json()).items || []; } catch (e) {}
+  g.innerHTML = '';
+  if (!items.length) { g.textContent = '这个库还没有图片'; g.style.color = 'var(--dim)'; return; }
+  g.style.color = '';
+  items.forEach(it => {
+    const img = document.createElement('img');
+    img.src = '/api/lib?item=' + it.id;
+    img.dataset.name = it.orig_name || it.filename;
+    img.title = it.orig_name || '';
+    img.onclick = () => openLightbox(it, (dataUrl, name) => { pickerCb(dataUrl, name); closePicker(); });
     g.appendChild(img);
   });
+}
+function openPicker(onPick, defaultKind) {
+  pickerCb = onPick || ((du, n) => addRefFromDataURL(du, n));
+  pickerKind = defaultKind || 'photo';
+  document.querySelectorAll('#pickerTabs button').forEach(b => b.classList.toggle('on', b.dataset.k === pickerKind));
+  $('picker').classList.add('on');
+  renderPickerGrid();
 }
 
 /* ---------- AI 换装 ---------- */
@@ -642,7 +658,9 @@ function renderTySlots() {
     const box = $(boxId); box.innerHTML = '';
     if (!slot) { box.innerHTML = '<span style="color:var(--dim);font-size:12.5px">'+emptyTxt+'</span>'; return; }
     const card = document.createElement('div'); card.className = 'refCard';
-    const img = document.createElement('img'); img.src = slot.dataUrl; card.appendChild(img);
+    const img = document.createElement('img'); img.src = slot.dataUrl;
+    img.onclick = () => openLightboxData(slot.dataUrl, slot.name);
+    card.appendChild(img);
     const ops = document.createElement('div'); ops.className='ops';
     ops.appendChild(mkBtn(target === 'person' ? '💾照片库' : '💾衣橱库', () => saveSlotToLib(target, slot)));
     ops.appendChild(mkBtn('⬇️', () => { const a = document.createElement('a'); a.href = slot.dataUrl; a.download = slot.name || (target==='person'?'person.png':'clothes.png'); a.click(); }));
@@ -667,7 +685,7 @@ wireTyDrop('tyClothesDrop', 'clothes');
 function openTyPicker(target) {
   openPicker((dataUrl, name) => {
     const img = new Image(); img.onload = () => tyImageToSlot(img, name, target); img.src = dataUrl;
-  }, target === 'person' ? ['photo','t2i','tryon'] : ['wardrobe','t2i','tryon']);
+  }, target === 'person' ? 'photo' : 'wardrobe');
 }
 $('tyBtn').onclick = async () => {
   if (!tyPerson || !tyClothes) return;
@@ -869,15 +887,43 @@ function toast(msg, isErr) {
   clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.className = ''; }, 2500);
 }
 let lbItem = null;
-function openLightbox(it) {
-  lbItem = it;
+let lbPickCb = null;
+let lbDataSrc = null;
+function openLightbox(it, pickCb) {
+  lbItem = it; lbPickCb = pickCb || null; lbDataSrc = null;
   $('lightbox').classList.add('on');
   $('lbImg').src = '/api/lib?item='+it.id+'&t='+Date.now();
   $('lbTitle').textContent = it.orig_name || it.filename;
   $('lbOpen').href = '/api/lib?item='+it.id;
   const dl = $('lbDl'); dl.href = '/api/lib?item='+it.id+'&download=1'; dl.setAttribute('download', it.orig_name||it.filename);
   $('lbTags').style.display = 'none';
+  $('lbPick').style.display = pickCb ? '' : 'none';
+  $('lbRenameBtn').style.display = ''; $('lbTagsBtn').style.display = '';
 }
+function openLightboxData(dataUrl, name) {
+  /* 页面内的本地图（参考图/素材图）：同样效果的放大预览 */
+  lbItem = null; lbPickCb = null; lbDataSrc = dataUrl;
+  $('lightbox').classList.add('on');
+  $('lbImg').src = dataUrl;
+  $('lbTitle').textContent = name || '图片';
+  $('lbOpen').href = dataUrl;
+  const dl = $('lbDl'); dl.href = dataUrl; dl.setAttribute('download', name || 'image.png');
+  $('lbTags').style.display = 'none';
+  $('lbPick').style.display = 'none';
+  $('lbRenameBtn').style.display = 'none'; $('lbTagsBtn').style.display = 'none';
+}
+$('lbPick').onclick = () => {
+  if (!lbPickCb) return;
+  const cb = lbPickCb;
+  if (lbDataSrc) { cb(lbDataSrc, $('lbTitle').textContent); $('lightbox').classList.remove('on'); return; }
+  if (!lbItem) return;
+  const it = lbItem;
+  fetch('/api/lib?item='+it.id).then(r => r.blob()).then(b => {
+    const rd = new FileReader();
+    rd.onload = () => { cb(rd.result, it.orig_name || it.filename); $('lightbox').classList.remove('on'); };
+    rd.readAsDataURL(b);
+  });
+};
 function lbRename() {
   if (!lbItem) return;
   const name = prompt('新名称', lbItem.orig_name || lbItem.filename); if (name === null) return;
