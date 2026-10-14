@@ -37,6 +37,8 @@
   .tystages { display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; }
   .tystage { font-size:11.5px; color:var(--dim); text-align:center; }
   .tystage img { width:92px; border-radius:8px; border:1px solid var(--line); display:block; cursor:zoom-in; }
+  .tyops { display:flex; gap:3px; justify-content:center; margin-top:3px; }
+  .tyops button { font-size:11px; padding:2px 5px; border-radius:6px; border:1px solid var(--line); background:var(--card); color:var(--txt); cursor:pointer; }
   label { display:block; font-size:13px; color:var(--dim); margin:12px 0 6px; }
   textarea, input[type=text], input[type=number], input[type=password], select { width:100%; background:var(--card); color:var(--txt); border:1px solid var(--line); border-radius:10px; padding:10px 12px; font-size:15px; font-family:inherit; }
   textarea { min-height:88px; resize:vertical; }
@@ -163,7 +165,13 @@
         <button class="dlbtn" style="flex:0 0 auto" onclick="openTyPicker('clothes')">从仓库选图</button>
       </div>
       <div class="typrev" id="tyClothesPrev"></div>
-      <div class="hint">流程：抠图 → 小画布生成换装 → 贴回原背景（背景保持原样）。约 1–3 分钟；若模型一次没换成功会自动重试（最多 3 次）。完成后下方会展示抠图/生成等中间结果。</div>
+      <label>提示词（可修改：想只换一部分时装，就写清楚，如"只把上衣换成&lt;image2&gt;的衣服，裤子和鞋保持不变"）</label>
+      <textarea id="tyPrompt" style="min-height:64px">将&lt;image2&gt;的衣服穿到&lt;image1&gt;的人物身上，保持人物面部、姿态和背景不变</textarea>
+      <label style="display:flex;align-items:center;gap:8px;margin:6px 0 12px">
+        <input type="checkbox" id="tyUpscale" checked style="width:auto">
+        放大贴回（输出保留原图分辨率、背景更清晰；人物是放大结果，可能偏软）
+      </label>
+      <div class="hint">流程：抠图 → 小画布生成换装 → 贴回原背景（背景保持原样）。约 1–3 分钟；结果下方会展示抠图/生成等中间结果。</div>
       <button id="tyBtn" disabled>开始换装</button>
     </div>
     <label id="promptLabel">提示词（描述你想要的画面）</label>
@@ -598,6 +606,24 @@ function setTySlot(target, val) {
   if (target === 'person') tyPerson = val; else tyClothes = val;
   renderTySlots();
 }
+/* 图片小操作按钮（素材/结果/中间图通用）：入库、下载、新标签打开 */
+function mkBtn(label, fn) { const b = document.createElement('button'); b.textContent = label; b.onclick = fn; return b; }
+async function saveUrlToLib(kind, url, name) {
+  const params = new URLSearchParams(new URL(url, location.origin).search);
+  const body = { kind, filename: params.get('filename') || name, subfolder: params.get('subfolder') || '', type: params.get('type') || 'output', tags: [] };
+  const r = await (await fetch('/api/items/fromfile', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) })).json();
+  toast(r.error ? '存入失败：'+r.error : '✔ 已存入' + (kind==='photo'?'照片库':kind==='tryon'?'试穿库':kind==='wardrobe'?'衣橱库':'文生图库'), !!r.error);
+}
+function dlUrl(url, name) {
+  const a = document.createElement('a'); const u = new URL(url, location.origin);
+  u.searchParams.set('download', '1'); a.href = u.toString(); a.download = name || 'image.png'; a.click();
+}
+async function saveSlotToLib(target, slot) {
+  const kind = target === 'person' ? 'photo' : 'wardrobe';
+  const r = await (await fetch('/api/items', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ kind, b64: slot.b64, ext: slot.ext, orig_name: slot.name || '', tags: [] }) })).json();
+  toast(r.error ? '存入失败：'+r.error : '✔ 已存入' + (kind==='photo'?'照片库':'衣橱库'), !!r.error);
+}
 function renderTySlots() {
   const mk = (slot, boxId, emptyTxt, target) => {
     const box = $(boxId); box.innerHTML = '';
@@ -605,6 +631,9 @@ function renderTySlots() {
     const card = document.createElement('div'); card.className = 'refCard';
     const img = document.createElement('img'); img.src = slot.dataUrl; card.appendChild(img);
     const ops = document.createElement('div'); ops.className='ops';
+    ops.appendChild(mkBtn(target === 'person' ? '💾照片库' : '💾衣橱库', () => saveSlotToLib(target, slot)));
+    ops.appendChild(mkBtn('⬇️', () => { const a = document.createElement('a'); a.href = slot.dataUrl; a.download = slot.name || (target==='person'?'person.png':'clothes.png'); a.click(); }));
+    ops.appendChild(mkBtn('🔍', () => window.open(slot.dataUrl, '_blank')));
     const bDel = document.createElement('button'); bDel.textContent = '🗑';
     bDel.onclick = () => setTySlot(target, null); ops.appendChild(bDel);
     card.appendChild(ops); box.appendChild(card);
@@ -633,7 +662,8 @@ $('tyBtn').onclick = async () => {
   let resp;
   try {
     resp = await (await fetch('/api/tryon', { method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ person: { b64: tyPerson.b64, ext: tyPerson.ext }, clothes: { b64: tyClothes.b64, ext: tyClothes.ext } }) })).json();
+      body: JSON.stringify({ person: { b64: tyPerson.b64, ext: tyPerson.ext }, clothes: { b64: tyClothes.b64, ext: tyClothes.ext },
+        prompt: $('tyPrompt').value, upscale: $('tyUpscale').checked }) })).json();
   } catch (e) { setStatus('请求失败：'+e, true); $('tyBtn').disabled = false; return; }
   if (resp.error) { setStatus('✖ '+resp.error, true); $('tyBtn').disabled = false; return; }
   refreshCredits();
@@ -665,6 +695,12 @@ $('tyBtn').onclick = async () => {
           const a = document.createElement('a'); a.href = s.url; a.target = '_blank'; a.rel = 'noopener';
           const im = document.createElement('img'); im.src = s.url; im.alt = s.label; a.appendChild(im);
           d.appendChild(a); const t = document.createElement('div'); t.textContent = s.label; d.appendChild(t);
+          const ops = document.createElement('div'); ops.className = 'tyops';
+          ops.appendChild(mkBtn('📷照片库', () => saveUrlToLib('photo', s.url, s.name)));
+          ops.appendChild(mkBtn('👗试穿库', () => saveUrlToLib('tryon', s.url, s.name)));
+          ops.appendChild(mkBtn('⬇️', () => dlUrl(s.url, s.name)));
+          ops.appendChild(mkBtn('🔍', () => window.open(s.url, '_blank')));
+          d.appendChild(ops);
           sb.appendChild(d);
         });
       }

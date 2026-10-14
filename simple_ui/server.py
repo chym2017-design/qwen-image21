@@ -373,10 +373,9 @@ def _img_url(name):
     return "/api/image?" + urllib.parse.urlencode({"filename": name, "subfolder": "", "type": "output"})
 
 
-def _tryon_generate(a_img, b_img, timeout=1500):
+def _tryon_generate(a_img, b_img, prompt, timeout=1500):
     """提交一次换装小画布生成（resolution=0，画布=图1裁切尺寸）并等待，返回 BGR 图。"""
     import tryon as _tryon        # 延迟导入（依赖 cv2/rembg/PIL）
-    prompt = _tryon.PROMPT
     data = {"mode": "edit", "quality": "turbo", "prompt": prompt,
             "refs": [{"b64": _tryon.encode_png_b64(a_img), "ext": "png"},
                      {"b64": _tryon.encode_png_b64(b_img), "ext": "png"}],
@@ -407,8 +406,8 @@ def _tryon_generate(a_img, b_img, timeout=1500):
     raise RuntimeError("本地生成超时")
 
 
-def _run_tryon_job(job_id, person_b64, clothes_b64, uid=None, cost=0):
-    """后台线程：抠图 → 小画布生成（失败自动重试）→ 贴回原背景，结果存 ComfyUI/output。"""
+def _run_tryon_job(job_id, person_b64, clothes_b64, prompt, upscale, uid=None, cost=0):
+    """后台线程：抠图 → 小画布生成（单次）→ 贴回原背景（可选放大贴回），结果存 ComfyUI/output。"""
     import tryon as _tryon
     try:
         os.makedirs(COMFY_OUTPUT, exist_ok=True)
@@ -419,7 +418,8 @@ def _run_tryon_job(job_id, person_b64, clothes_b64, uid=None, cost=0):
 
         person = _tryon.decode_png_b64(person_b64)
         clothes = _tryon.decode_png_b64(clothes_b64)
-        r = _tryon.run_tryon(person, clothes, _tryon_generate, log=log)
+        log("提示词：%s ｜ 放大贴回=%s" % (prompt or _tryon.PROMPT, bool(upscale)))
+        r = _tryon.run_tryon(person, clothes, _tryon_generate, prompt=prompt, upscale=upscale, log=log)
 
         fname = "qwen21_tryon_%s.png" % tag
         _tryon.save_png(os.path.join(COMFY_OUTPUT, fname), r["out"])
@@ -702,6 +702,8 @@ class Handler(BaseHTTPRequestHandler):
         clothes_b64 = ((data.get("clothes") or {}).get("b64") or "").strip()
         if not person_b64 or not clothes_b64:
             self._send(200, json.dumps({"error": "请先选择人像图和衣服图"})); return
+        prompt = (data.get("prompt") or "").strip()[:600]
+        upscale = bool(data.get("upscale"))
         cost = int(db.config_all()["cost_turbo"])
         if not db.spend_credits(user["id"], cost, "AI换装(本地)"):
             self._send(200, json.dumps({"error": "积分不足（需要 %d，当前 %d）" % (cost, user["credits"])})); return
@@ -716,7 +718,8 @@ class Handler(BaseHTTPRequestHandler):
         job_id = "tryon-" + secrets.token_hex(8)
         TRYON_JOBS[job_id] = {"state": "running", "images": [], "error": ""}
         threading.Thread(target=_run_tryon_job,
-                         args=(job_id, person_b64, clothes_b64, user["id"], cost), daemon=True).start()
+                         args=(job_id, person_b64, clothes_b64, prompt, upscale, user["id"], cost),
+                         daemon=True).start()
         _last_submit = now
         self._send(200, json.dumps({"prompt_id": job_id, "cost": cost}))
 

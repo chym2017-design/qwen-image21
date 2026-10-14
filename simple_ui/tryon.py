@@ -3,11 +3,12 @@
 
 结论来源：tryon_demo/direct_vs_crop_test_20261014/报告.md（速度/画质/内存对照实验）。
 要点：
-- 输入缩放到长边 ≤1024（32GB 机型内存安全线，直接整图/大图会触发 swap 慢数倍）
+- 输入缩放到长边 ≤1024 做抠图/生成（32GB 机型内存安全线，直接整图会触发 swap 慢数倍）
 - rembg 抠人像/衣服 → 前景 bbox 裁切贴白底 → resolution=0 生成（画布 = 裁切尺寸，图1比例）
-- 换装失败自动检测（人像剪影内平均色差 < 25 → 判为没换装）→ 自动重试，最多 3 次
+- 单次生成，不做自动重试；用「剪影内平均色差」检测是否换装成功（<25 给提示，由用户决定是否重试）
   （实测失败样本 8~12，成功样本 75+，阈值 25 有巨大余量）
-- 生成结果抠图 → 旧剪影残留区域用最近真实背景像素填充（距离变换）→ 重贴新人物
+- 贴回：生成结果抠图 → 旧剪影残留区域用扩散式背景填充 → 羽化贴回；
+  upscale=True 时把生成人物放大到【原图分辨率】后再贴回（背景保持原图清晰度）
 """
 import time
 
@@ -16,8 +17,7 @@ import numpy as np
 
 PROMPT = "将<image2>的衣服穿到<image1>的人物身上，保持人物面部、姿态和背景不变"
 MAX_SIDE = 1024          # 输入缩放长边（内存安全线）
-MAX_ATTEMPTS = 3         # 生成尝试次数上限
-SUCCESS_DIFF = 25.0      # 剪影内平均色差阈值：≥ 视为换装成功
+SUCCESS_DIFF = 25.0      # 剪影内平均色差阈值：< 则提示"可能未成功换装"
 
 
 # ---------------------------------------------------------------- 编解码
@@ -161,12 +161,15 @@ def _paste_with_fill(person, gen, p_a, box):
 
 
 # ---------------------------------------------------------------- 主流程
-def run_tryon(person_bgr, clothes_bgr, generate_fn, log=None):
-    """完整换装。generate_fn(a_img, b_img) -> BGR 生成结果（由调用方提交 ComfyUI）。
+def run_tryon(person_bgr, clothes_bgr, generate_fn, prompt=None, upscale=False, log=None):
+    """完整换装。generate_fn(a_img, b_img, prompt) -> BGR 生成结果（由调用方提交 ComfyUI）。
 
+    upscale=True：生成人物按比例放大到【原人像分辨率】的 bbox 尺寸再贴回，
+                  输出保持原图大小、背景同原图一样清晰（人物为放大结果，可能偏软）。
     返回 {out, intermediates:[(label, img)], attempts, score, warn, timings, meta}
     """
     log = log or (lambda *a: None)
+    prompt = (prompt or "").strip() or PROMPT
     t = {}
     warn = ""
 
@@ -186,26 +189,26 @@ def run_tryon(person_bgr, clothes_bgr, generate_fn, log=None):
     log("抠图完成：人像 bbox=%s 裁切=%dx%d，衣服裁切=%dx%d" % (
         list(map(int, pbox)), p_crop.shape[1], p_crop.shape[0], c_crop.shape[1], c_crop.shape[0]))
 
-    gen, score, attempts = None, 0.0, 0
-    t["gen_s"] = []
-    for i in range(MAX_ATTEMPTS):
-        t0 = time.time()
-        g = generate_fn(p_crop, c_crop)
-        t["gen_s"].append(round(time.time() - t0, 1))
-        attempts += 1
-        score = change_score(p_crop, g)
-        gen = g
-        log("第 %d 次生成：画布 %dx%d，换装检测分 %.1f（阈值 %.0f）" % (
-            attempts, g.shape[1], g.shape[0], score, SUCCESS_DIFF))
-        if score >= SUCCESS_DIFF:
-            break
-        if i < MAX_ATTEMPTS - 1:
-            log("未检测到换装变化，自动重试…")
+    t0 = time.time()
+    gen = generate_fn(p_crop, c_crop, prompt)
+    t["gen_s"] = round(time.time() - t0, 1)
+    score = change_score(p_crop, gen)
+    log("生成完成：画布 %dx%d，换装检测分 %.1f（阈值 %.0f）" % (
+        gen.shape[1], gen.shape[0], score, SUCCESS_DIFF))
     if score < SUCCESS_DIFF:
-        warn = "已尝试 %d 次仍未检测到明显换装变化（检测分 %.1f），结果可能未成功，可重试或更换衣服图" % (attempts, score)
+        warn = "检测分 %.1f：本次可能未成功换装，可修改提示词后再试一次" % score
 
     t0 = time.time()
-    out = _paste_with_fill(person, gen, p_a, pbox)
+    if upscale and s_p < 1.0:
+        h0, w0 = person_bgr.shape[:2]
+        p_a_full = cv2.resize(p_a, (w0, h0), interpolation=cv2.INTER_LINEAR)
+        box_full = [int(round(v / s_p)) for v in pbox]
+        box_full[2] = min(box_full[2], w0)
+        box_full[3] = min(box_full[3], h0)
+        out = _paste_with_fill(person_bgr, gen, p_a_full, tuple(box_full))
+        log("放大贴回：生成人物放大 x%.2f 贴回原图 %dx%d" % (1.0 / s_p, w0, h0))
+    else:
+        out = _paste_with_fill(person, gen, p_a, pbox)
     t["paste_s"] = round(time.time() - t0, 2)
 
     meta = {
@@ -214,8 +217,10 @@ def run_tryon(person_bgr, clothes_bgr, generate_fn, log=None):
         "gen_canvas_wh": [gen.shape[1], gen.shape[0]],
         "out_wh": [out.shape[1], out.shape[0]],
         "downscale": round(s_p, 3),
+        "upscale": bool(upscale and s_p < 1.0),
+        "prompt": prompt,
     }
     return {"out": out,
             "intermediates": [("人像（抠图裁切）", p_crop), ("衣服（抠图裁切）", c_crop), ("生成结果", gen)],
-            "attempts": attempts, "score": round(score, 1), "warn": warn,
+            "attempts": 1, "score": round(score, 1), "warn": warn,
             "timings": t, "meta": meta}

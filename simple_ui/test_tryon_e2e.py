@@ -41,7 +41,9 @@ def main():
     person = open(os.path.join(ROOT, "tryon_demo/direct_vs_crop_test_20261014/00_inputs/person_complex_bg.png"), "rb").read()
     clothes = open(os.path.join(ROOT, "下载.png"), "rb").read()
     body = {"person": {"b64": base64.b64encode(person).decode(), "ext": "png"},
-            "clothes": {"b64": base64.b64encode(clothes).decode(), "ext": "png"}}
+            "clothes": {"b64": base64.b64encode(clothes).decode(), "ext": "png"},
+            "prompt": "将<image2>的衣服穿到<image1>的人物身上，保持人物面部、姿态和背景不变",
+            "upscale": True}
     t0 = time.time()
     resp = api("/api/tryon", body, sid=sid)
     print("提交响应:", resp)
