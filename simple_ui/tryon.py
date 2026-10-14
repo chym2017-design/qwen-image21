@@ -108,17 +108,43 @@ def change_score(person_crop_white, gen_crop):
 
 
 # ---------------------------------------------------------------- 贴回 + 残留修复
-def _paste_with_fill(person, gen, p_a, box):
-    """把生成人物贴回原图：先按「旧剪影残留 → 最近真实背景像素填充」，再羽化贴回。"""
-    x0, y0, x1, y1 = box
+def _paste_with_fill(person, gen, p_a, box, scale=1.0):
+    """把生成人物贴回原图并修复旧剪影残留。
+
+    scale>1：把新人物以【底边中点】为锚点放大（默认 1.03），让新剪影盖住旧衣边缘的
+    残留条带；锚点在底边可保持脚部落点不变。
+    """
+    x0, y0, x1, y1 = map(int, box)
     gw, gh = x1 - x0, y1 - y0
     g_fg, g_a = remove_bg(gen)
-    if gen.shape[1] != gw or gen.shape[0] != gh:
-        g_fg = cv2.resize(g_fg, (gw, gh))
-        g_a = cv2.resize(g_a, (gw, gh))
 
-    pa_sub = p_a[y0:y1, x0:x1].astype(np.float32)
-    new_sil = g_a > 0.5
+    # 目标框：以底边中点为中心放缩到 scale 倍
+    nw, nh = max(1, int(round(gw * scale))), max(1, int(round(gh * scale)))
+    cx = (x0 + x1) // 2
+    nx0, ny0 = cx - nw // 2, y1 - nh
+
+    H, W = person.shape[:2]
+    wx0, wy0 = max(0, min(x0, nx0)), max(0, min(y0, ny0))
+    wx1, wy1 = min(W, max(x1, nx0 + nw)), min(H, max(y1, ny0 + nh))
+    ww, wh = wx1 - wx0, wy1 - wy0
+    if ww <= 0 or wh <= 0:
+        return person
+
+    # 缩放后的新人物（前景 + alpha）放到工作区画布上（自动裁剪越界部分）
+    fg_r = cv2.resize(g_fg, (nw, nh), interpolation=cv2.INTER_CUBIC)
+    a_r = cv2.resize(g_a, (nw, nh), interpolation=cv2.INTER_LINEAR)
+    G_fg = np.zeros((wh, ww, 3), np.uint8)
+    G_a = np.zeros((wh, ww), np.float32)
+    sx0, sy0 = nx0 - wx0, ny0 - wy0
+    dx0, dy0 = max(0, sx0), max(0, sy0)
+    px0, py0 = max(0, -sx0), max(0, -sy0)
+    dw, dh = min(nw - px0, ww - dx0), min(nh - py0, wh - dy0)
+    if dw > 0 and dh > 0:
+        G_fg[dy0:dy0 + dh, dx0:dx0 + dw] = fg_r[py0:py0 + dh, px0:px0 + dw]
+        G_a[dy0:dy0 + dh, dx0:dx0 + dw] = a_r[py0:py0 + dh, px0:px0 + dw]
+
+    pa_sub = p_a[wy0:wy1, wx0:wx1].astype(np.float32)
+    new_sil = G_a > 0.5
     new_prot = cv2.dilate(new_sil.astype(np.uint8), np.ones((3, 3), np.uint8)).astype(bool)
     old_soft = cv2.morphologyEx((pa_sub > 0.02).astype(np.uint8), cv2.MORPH_CLOSE,
                                 np.ones((5, 5), np.uint8)).astype(bool)
@@ -128,10 +154,10 @@ def _paste_with_fill(person, gen, p_a, box):
     source = (~old_guard) & (~new_sil)                      # 填充源：旧剪影外的真实背景
 
     base = person.copy()
-    region = base[y0:y1, x0:x1].copy()
+    region = base[wy0:wy1, wx0:wx1].copy()
     if shell.any() and source.any():
-        # 扩散式填充（归一化模糊迭代）：比“最近源填充”更稳——
-        # 大面积区域的填色是周围真实背景的平滑过渡，不会把远处不同色的背景块硬搬过来。
+        # 扩散式填充（归一化模糊迭代）：大面积区域的填色是周围真实背景的平滑过渡，
+        # 不会把远处不同色的背景块硬搬过来。
         vals = region.astype(np.float32)
         known = source.astype(np.float32)
         to_fill = shell & (~source)
@@ -147,25 +173,26 @@ def _paste_with_fill(person, gen, p_a, box):
         region[to_fill] = np.clip(vals, 0, 255).astype(np.uint8)[to_fill]
         # 填充边界做轻微羽化，避免硬边
         m = cv2.GaussianBlur(to_fill.astype(np.float32), (9, 9), 0)[..., None]
-        orig = base[y0:y1, x0:x1].astype(np.float32)
+        orig = base[wy0:wy1, wx0:wx1].astype(np.float32)
         region = (region.astype(np.float32) * m + orig * (1 - m)).astype(np.uint8)
-    base[y0:y1, x0:x1] = region
+    base[wy0:wy1, wx0:wx1] = region
 
-    ga = cv2.GaussianBlur(g_a, (7, 7), 0)
+    ga = cv2.GaussianBlur(G_a, (7, 7), 0)
     a3 = np.repeat(ga[..., None], 3, 2)
+    reg2 = base[wy0:wy1, wx0:wx1].astype(np.float32)
     out = base.copy()
-    out[y0:y1, x0:x1] = np.clip(
-        out[y0:y1, x0:x1].astype(np.float32) * (1 - a3) + g_fg.astype(np.float32) * a3, 0, 255
+    out[wy0:wy1, wx0:wx1] = np.clip(
+        reg2 * (1 - a3) + G_fg.astype(np.float32) * a3, 0, 255
     ).astype(np.uint8)
     return out
 
 
 # ---------------------------------------------------------------- 主流程
-def run_tryon(person_bgr, clothes_bgr, generate_fn, prompt=None, upscale=False, log=None):
+def run_tryon(person_bgr, clothes_bgr, generate_fn, prompt=None, upscale=False, scale=1.0, log=None):
     """完整换装。generate_fn(a_img, b_img, prompt) -> BGR 生成结果（由调用方提交 ComfyUI）。
 
-    upscale=True：生成人物按比例放大到【原人像分辨率】的 bbox 尺寸再贴回，
-                  输出保持原图大小、背景同原图一样清晰（人物为放大结果，可能偏软）。
+    upscale=True：输出保持【原人像分辨率】（生成人物按比例放大回原图再贴回，背景更清晰）。
+    scale：新人物贴回时的放大比例（默认 1.0；>1 时以底边中点放大，用于盖住旧衣边缘残留）。
     返回 {out, intermediates:[(label, img)], attempts, score, warn, timings, meta}
     """
     log = log or (lambda *a: None)
@@ -205,10 +232,10 @@ def run_tryon(person_bgr, clothes_bgr, generate_fn, prompt=None, upscale=False, 
         box_full = [int(round(v / s_p)) for v in pbox]
         box_full[2] = min(box_full[2], w0)
         box_full[3] = min(box_full[3], h0)
-        out = _paste_with_fill(person_bgr, gen, p_a_full, tuple(box_full))
-        log("放大贴回：生成人物放大 x%.2f 贴回原图 %dx%d" % (1.0 / s_p, w0, h0))
+        out = _paste_with_fill(person_bgr, gen, p_a_full, tuple(box_full), scale=scale)
+        log("贴回原图分辨率 %dx%d：新人物放大 %.0f%%" % (w0, h0, scale * 100))
     else:
-        out = _paste_with_fill(person, gen, p_a, pbox)
+        out = _paste_with_fill(person, gen, p_a, pbox, scale=scale)
     t["paste_s"] = round(time.time() - t0, 2)
 
     meta = {
@@ -218,6 +245,7 @@ def run_tryon(person_bgr, clothes_bgr, generate_fn, prompt=None, upscale=False, 
         "out_wh": [out.shape[1], out.shape[0]],
         "downscale": round(s_p, 3),
         "upscale": bool(upscale and s_p < 1.0),
+        "scale": round(float(scale), 3),
         "prompt": prompt,
     }
     return {"out": out,

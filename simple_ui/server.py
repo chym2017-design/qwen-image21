@@ -406,7 +406,7 @@ def _tryon_generate(a_img, b_img, prompt, timeout=1500):
     raise RuntimeError("本地生成超时")
 
 
-def _run_tryon_job(job_id, person_b64, clothes_b64, prompt, upscale, uid=None, cost=0):
+def _run_tryon_job(job_id, person_b64, clothes_b64, prompt, upscale, scale, uid=None, cost=0):
     """后台线程：抠图 → 小画布生成（单次）→ 贴回原背景（可选放大贴回），结果存 ComfyUI/output。"""
     import tryon as _tryon
     try:
@@ -418,8 +418,10 @@ def _run_tryon_job(job_id, person_b64, clothes_b64, prompt, upscale, uid=None, c
 
         person = _tryon.decode_png_b64(person_b64)
         clothes = _tryon.decode_png_b64(clothes_b64)
-        log("提示词：%s ｜ 放大贴回=%s" % (prompt or _tryon.PROMPT, bool(upscale)))
-        r = _tryon.run_tryon(person, clothes, _tryon_generate, prompt=prompt, upscale=upscale, log=log)
+        log("提示词：%s ｜ 原图分辨率贴回=%s ｜ 人物放大=%.0f%%" % (
+            prompt or _tryon.PROMPT, bool(upscale), scale * 100))
+        r = _tryon.run_tryon(person, clothes, _tryon_generate, prompt=prompt,
+                             upscale=upscale, scale=scale, log=log)
 
         fname = "qwen21_tryon_%s.png" % tag
         _tryon.save_png(os.path.join(COMFY_OUTPUT, fname), r["out"])
@@ -704,6 +706,11 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, json.dumps({"error": "请先选择人像图和衣服图"})); return
         prompt = (data.get("prompt") or "").strip()[:600]
         upscale = bool(data.get("upscale"))
+        try:
+            scale = float(data.get("scale") or 1.03)
+        except (TypeError, ValueError):
+            scale = 1.03
+        scale = max(1.0, min(1.5, scale))
         cost = int(db.config_all()["cost_turbo"])
         if not db.spend_credits(user["id"], cost, "AI换装(本地)"):
             self._send(200, json.dumps({"error": "积分不足（需要 %d，当前 %d）" % (cost, user["credits"])})); return
@@ -718,7 +725,7 @@ class Handler(BaseHTTPRequestHandler):
         job_id = "tryon-" + secrets.token_hex(8)
         TRYON_JOBS[job_id] = {"state": "running", "images": [], "error": ""}
         threading.Thread(target=_run_tryon_job,
-                         args=(job_id, person_b64, clothes_b64, prompt, upscale, user["id"], cost),
+                         args=(job_id, person_b64, clothes_b64, prompt, upscale, scale, user["id"], cost),
                          daemon=True).start()
         _last_submit = now
         self._send(200, json.dumps({"prompt_id": job_id, "cost": cost}))

@@ -167,10 +167,12 @@
       <div class="typrev" id="tyClothesPrev"></div>
       <label>提示词（可修改：想只换一部分时装，就写清楚，如"只把上衣换成&lt;image2&gt;的衣服，裤子和鞋保持不变"）</label>
       <textarea id="tyPrompt" style="min-height:64px">将&lt;image2&gt;的衣服穿到&lt;image1&gt;的人物身上，保持人物面部、姿态和背景不变</textarea>
-      <label style="display:flex;align-items:center;gap:8px;margin:6px 0 12px">
+      <label style="display:flex;align-items:center;gap:8px;margin:6px 0 6px">
         <input type="checkbox" id="tyUpscale" checked style="width:auto">
-        放大贴回（输出保留原图分辨率、背景更清晰；人物是放大结果，可能偏软）
+        输出保留原图分辨率（背景与原图同样清晰；人物为放大结果，可能偏软）
       </label>
+      <label>人物放大比例 %（默认 103：新人物略微放大，盖住旧衣边缘残留；100 = 不放大）</label>
+      <input type="number" id="tyScale" value="103" min="100" max="150" step="1" style="width:120px;margin-bottom:10px">
       <div class="hint">流程：抠图 → 小画布生成换装 → 贴回原背景（背景保持原样）。约 1–3 分钟；结果下方会展示抠图/生成等中间结果。</div>
       <button id="tyBtn" disabled>开始换装</button>
     </div>
@@ -663,7 +665,8 @@ $('tyBtn').onclick = async () => {
   try {
     resp = await (await fetch('/api/tryon', { method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ person: { b64: tyPerson.b64, ext: tyPerson.ext }, clothes: { b64: tyClothes.b64, ext: tyClothes.ext },
-        prompt: $('tyPrompt').value, upscale: $('tyUpscale').checked }) })).json();
+        prompt: $('tyPrompt').value, upscale: $('tyUpscale').checked,
+        scale: Math.max(1, Math.min(1.5, (Number($('tyScale').value) || 103) / 100)) }) })).json();
   } catch (e) { setStatus('请求失败：'+e, true); $('tyBtn').disabled = false; return; }
   if (resp.error) { setStatus('✖ '+resp.error, true); $('tyBtn').disabled = false; return; }
   refreshCredits();

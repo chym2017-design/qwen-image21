@@ -43,7 +43,7 @@ def main():
     body = {"person": {"b64": base64.b64encode(person).decode(), "ext": "png"},
             "clothes": {"b64": base64.b64encode(clothes).decode(), "ext": "png"},
             "prompt": "将<image2>的衣服穿到<image1>的人物身上，保持人物面部、姿态和背景不变",
-            "upscale": True}
+            "upscale": True, "scale": 1.03}
     t0 = time.time()
     resp = api("/api/tryon", body, sid=sid)
     print("提交响应:", resp)
